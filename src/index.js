@@ -1208,7 +1208,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
 
       if (interaction.commandName === "perfil") {
-        await interaction.reply({ embeds: [profileEmbed(interaction.user)], ephemeral: true });
+        await interaction.reply({ embeds: [profileEmbed(interaction.user)] });
         return;
       }
 
@@ -1694,3 +1694,4 @@ client.once(Events.ClientReady, async (c) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
