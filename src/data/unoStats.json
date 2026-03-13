@@ -1,0 +1,29 @@
+{
+  "481516927668453381": {
+    "username": "zmg4",
+    "wins": 1,
+    "losses": 1,
+    "elo": 1000,
+    "gamesPlayed": 2,
+    "vsBotWins": 0,
+    "pvpWins": null,
+    "winStreak": 0,
+    "achievements": []
+  },
+  "UNO_BOT": {
+    "username": "UNO Bot",
+    "wins": 1,
+    "losses": 0,
+    "elo": 1012,
+    "gamesPlayed": 1
+  },
+  "221820148892303361": {
+    "username": "juankpalanca",
+    "wins": 0,
+    "losses": 1,
+    "elo": 988,
+    "gamesPlayed": 1,
+    "vsBotWins": 0,
+    "pvpWins": 0
+  }
+}
