@@ -220,9 +220,17 @@ function getPlayerStats(userId, username = "Jugador") {
 
 function topPlayers(limit = 10) {
   const stats = loadStats();
+
   return Object.entries(stats)
-    .map(([userId, data]) => ({ userId, ...data }))
-    .sort((a, b) => b.elo - a.elo || b.wins - a.wins)
+    .map(([userId, data]) => {
+      const safe = {
+        ...createDefaultPlayer(data?.username || "Jugador"),
+        ...data
+      };
+
+      return { userId, ...safe };
+    })
+    .sort((a, b) => (b.elo || 0) - (a.elo || 0) || (b.wins || 0) - (a.wins || 0))
     .slice(0, limit);
 }
 
@@ -630,11 +638,9 @@ function topEmbed() {
 }
 
 function profileEmbed(user) {
-const stats = getPlayerStats(user.id, user.username);
-const playerAchievements = Array.isArray(stats.achievements) ? stats.achievements : [];
-
-const owned = ACHIEVEMENTS.filter((a) => playerAchievements.includes(a.id));
-const missing = ACHIEVEMENTS.filter((a) => !playerAchievements.includes(a.id));
+  const stats = getPlayerStats(user.id, user.username);
+  const rank = getPlayerRank(user.id);
+  const achievementCount = Array.isArray(stats.achievements) ? stats.achievements.length : 0;
 
   return new EmbedBuilder()
     .setColor(EMBED.brand)
@@ -642,14 +648,14 @@ const missing = ACHIEVEMENTS.filter((a) => !playerAchievements.includes(a.id));
     .setThumbnail(user.displayAvatarURL())
     .setDescription(
       [
-        `⚡ Elo: **${stats.elo}**`,
-        `🏆 Victorias: **${stats.wins}**`,
-        `❌ Derrotas: **${stats.losses}**`,
-        `🎮 Partidas: **${stats.gamesPlayed}**`,
-        `🤖 Vs Bot: **${stats.vsBotWins}**`,
-        `⚔️ PvP: **${stats.pvpWins}**`,
+        `⚡ Elo: **${stats.elo ?? 1000}**`,
+        `🏆 Victorias: **${stats.wins ?? 0}**`,
+        `❌ Derrotas: **${stats.losses ?? 0}**`,
+        `🎮 Partidas: **${stats.gamesPlayed ?? 0}**`,
+        `🤖 Vs Bot: **${stats.vsBotWins ?? 0}**`,
+        `⚔️ PvP: **${stats.pvpWins ?? 0}**`,
         `📈 Posición: **${rank ? `#${rank}` : "Sin rank"}**`,
-        `🏅 Logros: **${stats.achievements.length}/${ACHIEVEMENTS.length}**`
+        `🏅 Logros: **${achievementCount}/${ACHIEVEMENTS.length}**`
       ].join("\n")
     );
 }
