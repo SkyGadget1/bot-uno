@@ -1203,7 +1203,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
 
       if (interaction.commandName === "top") {
-        await interaction.reply({ embeds: [topEmbed()], ephemeral: true });
+        await interaction.reply({ embeds: [topEmbed()] });
         return;
       }
 
@@ -1218,7 +1218,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
 
       if (interaction.commandName === "logros") {
-        await interaction.reply({ embeds: [achievementsEmbed(interaction.user)], ephemeral: true });
+        await interaction.reply({ embeds: [achievementsEmbed(interaction.user)] });
         return;
       }
 
@@ -1694,4 +1694,5 @@ client.once(Events.ClientReady, async (c) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
 
