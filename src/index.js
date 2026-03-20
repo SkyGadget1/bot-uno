@@ -35,11 +35,14 @@ const HISTORY_PATH = path.join(DATA_DIR, "unoHistory.json");
 const games = new Map(); // gameId -> game
 const channelGames = new Map(); // channelId -> gameId
 const playerGames = new Map(); // userId -> gameId
+const botTurnTimers = new Map(); // gameId -> { playTimer, failSafeTimer }
 
 let CARD_SEQ = 1;
 
 const TEMP_CATEGORY_NAME = "UNO TEMP";
 const TEMP_DELETE_DELAY_MS = 15000;
+const BOT_PLAY_DELAY_MS = 1200;
+const BOT_FAILSAFE_MS = 5000;
 
 const COLORS = {
   red: "🔴",
@@ -305,12 +308,6 @@ function getGameByChannelId(channelId) {
   return games.get(gameId) || null;
 }
 
-function getGameByPlayerId(userId) {
-  const gameId = playerGames.get(userId);
-  if (!gameId) return null;
-  return games.get(gameId) || null;
-}
-
 function getGameById(gameId) {
   return games.get(gameId) || null;
 }
@@ -340,7 +337,18 @@ function refreshPlayerReferences(game) {
   }
 }
 
+function clearBotTurnTimers(gameId) {
+  const timers = botTurnTimers.get(gameId);
+  if (!timers) return;
+
+  if (timers.playTimer) clearTimeout(timers.playTimer);
+  if (timers.failSafeTimer) clearTimeout(timers.failSafeTimer);
+
+  botTurnTimers.delete(gameId);
+}
+
 function removeGameReferences(game) {
+  clearBotTurnTimers(game.id);
   games.delete(game.id);
   channelGames.delete(game.channelId);
 
@@ -1112,22 +1120,100 @@ async function sendOrUpdateGameMessage(channel, game) {
    TURNOS
 ========================================================= */
 
+function scheduleBotTurn(channel, game) {
+  clearBotTurnTimers(game.id);
+
+  console.log("[advanceTurn] le toca al bot:", game.id);
+
+  const playTimer = setTimeout(async () => {
+    try {
+      if (game.finished) return;
+      const current = getCurrentPlayer(game);
+      if (!current?.isBot) return;
+
+      console.log("[botPlay] intento principal:", game.id);
+      await botPlay(channel, game);
+    } catch (err) {
+      console.error("Error en botPlay:", err);
+    }
+  }, BOT_PLAY_DELAY_MS);
+
+  const failSafeTimer = setTimeout(async () => {
+    try {
+      if (game.finished) return;
+      const current = getCurrentPlayer(game);
+
+      if (!current?.isBot) return;
+
+      console.log("[anti-freeze] bot trabado, forzando turno:", game.id);
+
+      const card = chooseBotCard(game);
+
+      if (card) {
+        const hand = game.hands["UNO_BOT"];
+        const idx = hand.findIndex((c) => c.id === card.id);
+
+        if (idx !== -1) {
+          const playedCard = hand.splice(idx, 1)[0];
+          const selectedColor =
+            playedCard.type === "wild" || playedCard.type === "wild4"
+              ? bestBotColor(game)
+              : null;
+
+          if (hand.length === 1) {
+            game.unoCalled["UNO_BOT"] = true;
+            game.saidUnoThisGame["UNO_BOT"] = true;
+          }
+
+          game.lastAction = `UNO Bot jugó ${playedCard.label} · recuperación automática`;
+          await applyPlayedCard(channel, game, current, playedCard, selectedColor);
+          return;
+        }
+      }
+
+      drawCards(game, "UNO_BOT", 1);
+      const drawn = game.hands["UNO_BOT"][game.hands["UNO_BOT"].length - 1];
+
+      if (drawn && canPlay(drawn, game)) {
+        const hand = game.hands["UNO_BOT"];
+        const idx = hand.findIndex((c) => c.id === drawn.id);
+
+        if (idx !== -1) {
+          const playedCard = hand.splice(idx, 1)[0];
+          const selectedColor =
+            playedCard.type === "wild" || playedCard.type === "wild4"
+              ? bestBotColor(game)
+              : null;
+
+          game.lastAction = `UNO Bot robó y jugó ${playedCard.label} · recuperación automática`;
+          await applyPlayedCard(channel, game, current, playedCard, selectedColor);
+          return;
+        }
+      }
+
+      game.lastAction = "UNO Bot robó y pasó · recuperación automática";
+      await advanceTurn(channel, game, 1);
+    } catch (err) {
+      console.error("Error anti-freeze:", err);
+    }
+  }, BOT_FAILSAFE_MS);
+
+  botTurnTimers.set(game.id, { playTimer, failSafeTimer });
+}
+
 async function advanceTurn(channel, game, skipAmount = 1) {
+  clearBotTurnTimers(game.id);
+
   game.currentPlayerIndex = nextPlayerIndex(game, skipAmount);
   game.turnNumber += 1;
 
+  const current = getCurrentPlayer(game);
+  console.log("[advanceTurn] turno ahora:", current?.username, "game:", game.id);
+
   await sendOrUpdateGameMessage(channel, game);
 
-  const current = getCurrentPlayer(game);
-
   if (current?.isBot && !game.finished) {
-    setTimeout(async () => {
-      try {
-        await botPlay(channel, game);
-      } catch (err) {
-        console.error("Error en botPlay:", err);
-      }
-    }, 1000);
+    scheduleBotTurn(channel, game);
   }
 }
 
@@ -1141,6 +1227,7 @@ async function sendAchievementUnlocks(channel, unlocked) {
 async function finishGame(channel, game, winner) {
   game.finished = true;
   game.started = false;
+  clearBotTurnTimers(game.id);
 
   const stats = loadStats();
 
@@ -1229,6 +1316,8 @@ async function finishGame(channel, game, winner) {
 }
 
 async function applyPlayedCard(channel, game, player, card, selectedColor = null) {
+  clearBotTurnTimers(game.id);
+
   game.discard.push(card);
   game.lastPlayedCardType = card.type;
 
@@ -1292,7 +1381,7 @@ async function applyPlayedCard(channel, game, player, card, selectedColor = null
 ========================================================= */
 
 function chooseBotCard(game) {
-  const hand = sortHand(game.hands["UNO_BOT"]);
+  const hand = sortHand(game.hands["UNO_BOT"] || []);
   const playable = hand.filter((card) => canPlay(card, game));
   if (!playable.length) return null;
 
@@ -1321,37 +1410,64 @@ function bestBotColor(game) {
 }
 
 async function botPlay(channel, game) {
-  if (game.finished) return;
+  console.log("[botPlay] inicio", game.id);
+
+  if (game.finished) {
+    console.log("[botPlay] partida terminada");
+    return;
+  }
 
   const current = getCurrentPlayer(game);
-  if (!current || !current.isBot) return;
+  console.log("[botPlay] current:", current?.username);
+
+  if (!current || !current.isBot) {
+    console.log("[botPlay] no es turno del bot");
+    return;
+  }
 
   const card = chooseBotCard(game);
+  console.log("[botPlay] carta elegida:", card ? card.label : "ninguna");
 
   if (!card) {
     drawCards(game, "UNO_BOT", 1);
     const drawn = game.hands["UNO_BOT"][game.hands["UNO_BOT"].length - 1];
+    console.log("[botPlay] robó:", drawn ? drawn.label : "ninguna");
 
     if (drawn && canPlay(drawn, game)) {
       const hand = game.hands["UNO_BOT"];
       const idx = hand.findIndex((c) => c.id === drawn.id);
+
+      if (idx === -1) {
+        console.log("[botPlay] no encontró carta robada en mano");
+        return;
+      }
+
       const playedCard = hand.splice(idx, 1)[0];
       const color =
         playedCard.type === "wild" || playedCard.type === "wild4"
           ? bestBotColor(game)
           : null;
+
       game.lastAction = `UNO Bot robó y jugó ${playedCard.label}`;
       await applyPlayedCard(channel, game, current, playedCard, color);
+      console.log("[botPlay] terminó robando y jugando");
       return;
     }
 
     game.lastAction = "UNO Bot robó y pasó";
     await advanceTurn(channel, game, 1);
+    console.log("[botPlay] terminó robando y pasando");
     return;
   }
 
   const hand = game.hands["UNO_BOT"];
   const idx = hand.findIndex((c) => c.id === card.id);
+
+  if (idx === -1) {
+    console.log("[botPlay] no encontró carta elegida en mano");
+    return;
+  }
+
   const playedCard = hand.splice(idx, 1)[0];
   const selectedColor =
     playedCard.type === "wild" || playedCard.type === "wild4" ? bestBotColor(game) : null;
@@ -1362,6 +1478,7 @@ async function botPlay(channel, game) {
   }
 
   await applyPlayedCard(channel, game, current, playedCard, selectedColor);
+  console.log("[botPlay] terminó jugando carta");
 }
 
 /* =========================================================
@@ -1416,10 +1533,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (!interaction.isButton() && !interaction.isStringSelectMenu()) return;
 
     const customId = interaction.customId;
-
-    /* =========================
-       MENÚ PRINCIPAL
-    ========================= */
 
     if (customId === "uno_menu_find") {
       const existing = getGameByChannelId(interaction.channel.id);
@@ -1494,6 +1607,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       await tempChannel.send(`🎮 ${interaction.user}, tu partida de UNO vs Bot empezó acá.`);
       await sendOrUpdateGameMessage(tempChannel, game);
+
+      const current = getCurrentPlayer(game);
+      if (current?.isBot) {
+        scheduleBotTurn(tempChannel, game);
+      }
+
       return;
     }
 
@@ -1534,10 +1653,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await interaction.reply({ embeds: [achievementsEmbed(interaction.user)], ephemeral: true });
       return;
     }
-
-    /* =========================
-       COLOR WILD
-    ========================= */
 
     if (customId.startsWith("uno_color_")) {
       const parts = customId.split("_");
@@ -1591,10 +1706,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       return;
     }
-
-    /* =========================
-       ACCIONES GENERALES DE PARTIDA
-    ========================= */
 
     if (customId.startsWith("uno_topgame_")) {
       await interaction.reply({ embeds: [topEmbed()], ephemeral: true });
@@ -1688,6 +1799,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       await interaction.reply({ content: "🚀 La partida comenzó.", ephemeral: true });
       await sendOrUpdateGameMessage(interaction.channel, game);
+
+      const current = getCurrentPlayer(game);
+      if (current?.isBot) {
+        scheduleBotTurn(interaction.channel, game);
+      }
+
       return;
     }
 
