@@ -3105,45 +3105,55 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
 if (interaction.commandName === "cerrarsala") {
 
-  const channelId = interaction.channel.id;
+  const channel = interaction.channel;
+  const channelId = channel.id;
   const game = channelGames.get(channelId);
 
-  if (!game) {
+  // 👇 VALIDACIÓN (ARRIBA DEL TRY)
+  if (game && game.hostId && interaction.user.id !== game.hostId) {
     return interaction.reply({
-      content: "❌ No hay una partida en esta sala.",
+      content: "❌ Solo el creador de la sala puede cerrarla.",
       ephemeral: true
     });
   }
-if (game.hostId && interaction.user.id !== game.hostId) {
-  return interaction.reply({
-    content: "❌ Solo el creador de la sala puede cerrarla.",
-    ephemeral: true
-  });
-}
+
   try {
-    // eliminar referencias
-    channelGames.delete(channelId);
+    if (game) {
+      channelGames.delete(channelId);
 
-    for (const p of game.players) {
-      playerGames.delete(p.id);
+      for (const p of game.players || []) {
+        playerGames.delete(p.id);
+      }
+
+      games.delete(game.id);
     }
 
-    // eliminar canal si es temporal
-    if (interaction.channel.deletable) {
-      await interaction.reply("🧹 Cerrando sala...");
-      setTimeout(() => {
-        interaction.channel.delete().catch(() => {});
-      }, 2000);
-    } else {
-      await interaction.reply("⚠️ No puedo eliminar este canal.");
-    }
+    await interaction.reply({
+      content: "🧹 Cerrando sala...",
+      ephemeral: true
+    });
+
+    setTimeout(async () => {
+      try {
+        if (channel.deletable) {
+          await channel.delete("Cierre manual de sala UNO");
+        } else {
+          console.log("⚠️ Canal no eliminable");
+        }
+      } catch (err) {
+        console.error("Error borrando canal:", err);
+      }
+    }, 1500);
 
   } catch (err) {
     console.error(err);
-    await interaction.reply({
-      content: "❌ Error al cerrar la sala.",
-      ephemeral: true
-    });
+
+    if (!interaction.replied) {
+      await interaction.reply({
+        content: "❌ No pude cerrar la sala.",
+        ephemeral: true
+      });
+    }
   }
 
   return;
