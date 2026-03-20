@@ -680,6 +680,9 @@ const slashCommands = [
       o.setName("usuario").setDescription("Jugador a consultar").setRequired(false)
     ),
   new SlashCommandBuilder().setName("historial").setDescription("Ver últimas partidas"),
+  new SlashCommandBuilder()
+  .setName("cerrarsala")
+  .setDescription("Cerrar la sala actual manualmente"),
   new SlashCommandBuilder().setName("logros").setDescription("Ver logros"),
   new SlashCommandBuilder().setName("misiones").setDescription("Ver misiones diarias")
 ].map((c) => c.toJSON());
@@ -3100,7 +3103,51 @@ client.on(Events.InteractionCreate, async (interaction) => {
         });
         return;
       }
+if (interaction.commandName === "cerrarsala") {
 
+  const channelId = interaction.channel.id;
+  const game = channelGames.get(channelId);
+
+  if (!game) {
+    return interaction.reply({
+      content: "❌ No hay una partida en esta sala.",
+      ephemeral: true
+    });
+  }
+if (game.hostId && interaction.user.id !== game.hostId) {
+  return interaction.reply({
+    content: "❌ Solo el creador de la sala puede cerrarla.",
+    ephemeral: true
+  });
+}
+  try {
+    // eliminar referencias
+    channelGames.delete(channelId);
+
+    for (const p of game.players) {
+      playerGames.delete(p.id);
+    }
+
+    // eliminar canal si es temporal
+    if (interaction.channel.deletable) {
+      await interaction.reply("🧹 Cerrando sala...");
+      setTimeout(() => {
+        interaction.channel.delete().catch(() => {});
+      }, 2000);
+    } else {
+      await interaction.reply("⚠️ No puedo eliminar este canal.");
+    }
+
+  } catch (err) {
+    console.error(err);
+    await interaction.reply({
+      content: "❌ Error al cerrar la sala.",
+      ephemeral: true
+    });
+  }
+
+  return;
+}
       if (interaction.commandName === "reglas") {
         await interaction.reply({ embeds: [rulesEmbed()] });
         return;
