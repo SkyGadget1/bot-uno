@@ -1,5 +1,5 @@
 require("dotenv").config();
-
+const { Pool } = require('pg');
 const fs = require("fs");
 const path = require("path");
 const {
@@ -23,7 +23,12 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.DirectMessages],
   partials: [Partials.Channel]
 });
-
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.PG_SSL === "true"
+    ? { rejectUnauthorized: false }
+    : false
+});
 /* =========================================================
    CONFIG
 ========================================================= */
@@ -40,6 +45,15 @@ const rematchOffers = new Map();
 const roomDeleteTimers = new Map();
 
 let CARD_SEQ = 1;
+
+async function testDB() {
+  try {
+    await pool.query('SELECT 1');
+    console.log('✅ Postgres conectado correctamente');
+  } catch (err) {
+    console.error('❌ Error conectando a Postgres:', err);
+  }
+}
 
 const TEMP_CATEGORY_NAME = "UNO TEMP";
 const TEMP_DELETE_DELAY_MS = 15000;
@@ -3635,6 +3649,9 @@ if (action === "start") {
 client.once(Events.ClientReady, async (c) => {
   ensureDataFiles();
   console.log(`✅ Bot conectado como ${c.user.tag}`);
+
+  await testDB(); // conexión a PostgreSQL
+
   await registerSlashCommands();
 });
 
