@@ -68,13 +68,128 @@ async function initDB() {
       games INT DEFAULT 0,
       xp INT DEFAULT 0,
       level INT DEFAULT 1,
-      history JSONB DEFAULT '[]'
+      history JSONB DEFAULT '[]',
+      settings JSONB DEFAULT '{}',
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
     );
   `);
 
-  console.log("📦 Tabla SQL lista");
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS uno_inventory (
+      user_id TEXT NOT NULL,
+      item_key TEXT NOT NULL,
+      quantity INT DEFAULT 0,
+      PRIMARY KEY (user_id, item_key)
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS uno_missions (
+      user_id TEXT NOT NULL,
+      mission_key TEXT NOT NULL,
+      progress INT DEFAULT 0,
+      target INT DEFAULT 1,
+      completed BOOLEAN DEFAULT FALSE,
+      claimed BOOLEAN DEFAULT FALSE,
+      reset_date TEXT NOT NULL,
+      PRIMARY KEY (user_id, mission_key, reset_date)
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS uno_achievements (
+      user_id TEXT NOT NULL,
+      achievement_key TEXT NOT NULL,
+      unlocked BOOLEAN DEFAULT FALSE,
+      unlocked_at TIMESTAMP NULL,
+      PRIMARY KEY (user_id, achievement_key)
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS uno_rank_season (
+      user_id TEXT PRIMARY KEY,
+      elo INT DEFAULT 1000,
+      wins INT DEFAULT 0,
+      losses INT DEFAULT 0,
+      updated_at TIMESTAMP DEFAULT NOW()
+    );
+  `);
+
+  console.log("📦 Tablas SQL listas");
+}
+async function ensureUserExists(userId) {
+  await pool.query(`
+    INSERT INTO uno_users (user_id)
+    VALUES ($1)
+    ON CONFLICT (user_id) DO NOTHING
+  `, [userId]);
 }
 
+async function getUser(userId) {
+  await ensureUserExists(userId);
+
+  const res = await pool.query(
+    `SELECT * FROM uno_users WHERE user_id = $1`,
+    [userId]
+  );
+
+  return res.rows[0];
+}
+
+async function saveUser(userId, user) {
+  await pool.query(`
+    UPDATE uno_users
+    SET coins = $1,
+        wins = $2,
+        losses = $3,
+        games = $4,
+        xp = $5,
+        level = $6,
+        history = $7,
+        settings = $8,
+        updated_at = NOW()
+    WHERE user_id = $9
+  `, [
+    user.coins ?? 0,
+    user.wins ?? 0,
+    user.losses ?? 0,
+    user.games ?? 0,
+    user.xp ?? 0,
+    user.level ?? 1,
+    JSON.stringify(user.history ?? []),
+    JSON.stringify(user.settings ?? {}),
+    userId
+  ]);
+}
+async function endGameSQL(userId, win) {
+  const user = await getUser(userId);
+
+  user.games += 1;
+
+  if (win) {
+    user.wins += 1;
+    user.coins += 50;
+    user.xp += 20;
+  } else {
+    user.losses += 1;
+    user.xp += 10;
+  }
+
+  if (user.xp >= user.level * 100) {
+    user.level += 1;
+    user.xp = 0;
+  }
+
+  user.history = user.history || [];
+  user.history.push({
+    result: win ? "win" : "lose",
+    date: new Date().toISOString()
+  });
+
+  await saveUser(userId, user);
+}
 async function getUser(userId) {
   const res = await pool.query(
     "SELECT * FROM uno_users WHERE user_id = $1",
@@ -142,6 +257,163 @@ async function endGameSQL(userId, win) {
 
   await saveUser(userId, user);
 }
+async function addItem(userId, itemKey, amount = 1) {
+  await ensureUserExists(userId);
+
+  await pool.query(`
+    INSERT INTO uno_inventory (user_id, item_key, quantity)
+    VALUES ($1, $2, $3)
+    ON CONFLICT (user_id, item_key)
+    DO UPDATE SET quantity = uno_inventory.quantity + EXCLUDED.quantity
+  `, [userId, itemKey, amount]);
+}
+
+async function removeItem(userId, itemKey, amount = 1) {
+  await pool.query(`
+    UPDATE uno_inventory
+    SET quantity = GREATEST(quantity - $3, 0)
+    WHERE user_id = $1 AND item_key = $2
+  `, [userId, itemKey, amount]);
+}
+
+async function getInventory(userId) {
+  const res = await pool.query(`
+    SELECT item_key, quantity
+    FROM uno_inventory
+    WHERE user_id = $1 AND quantity > 0
+    ORDER BY item_key ASC
+  `, [userId]);
+
+  return res.rows;
+}
+function getTodayKey() {
+  const now = new Date();
+  return now.toISOString().slice(0, 10);
+}
+
+async function ensureMission(userId, missionKey, target = 1) {
+  const resetDate = getTodayKey();
+
+  await pool.query(`
+    INSERT INTO uno_missions (
+      user_id, mission_key, progress, target, completed, claimed, reset_date
+    )
+    VALUES ($1, $2, 0, $3, false, false, $4)
+    ON CONFLICT (user_id, mission_key, reset_date) DO NOTHING
+  `, [userId, missionKey, target, resetDate]);
+}
+
+async function addMissionProgress(userId, missionKey, amount = 1, target = 1) {
+  const resetDate = getTodayKey();
+
+  await ensureMission(userId, missionKey, target);
+
+  await pool.query(`
+    UPDATE uno_missions
+    SET progress = progress + $4,
+        completed = CASE WHEN progress + $4 >= target THEN true ELSE completed END
+    WHERE user_id = $1
+      AND mission_key = $2
+      AND reset_date = $3
+  `, [userId, missionKey, resetDate, amount]);
+}
+
+async function getDailyMissions(userId) {
+  const resetDate = getTodayKey();
+
+  const res = await pool.query(`
+    SELECT mission_key, progress, target, completed, claimed
+    FROM uno_missions
+    WHERE user_id = $1 AND reset_date = $2
+    ORDER BY mission_key ASC
+  `, [userId, resetDate]);
+
+  return res.rows;
+}
+
+async function claimMission(userId, missionKey, rewardCoins = 100) {
+  const resetDate = getTodayKey();
+
+  const res = await pool.query(`
+    SELECT *
+    FROM uno_missions
+    WHERE user_id = $1 AND mission_key = $2 AND reset_date = $3
+  `, [userId, missionKey, resetDate]);
+
+  const mission = res.rows[0];
+  if (!mission || !mission.completed || mission.claimed) return false;
+
+  await pool.query(`
+    UPDATE uno_missions
+    SET claimed = true
+    WHERE user_id = $1 AND mission_key = $2 AND reset_date = $3
+  `, [userId, missionKey, resetDate]);
+
+  const user = await getUser(userId);
+  user.coins += rewardCoins;
+  await saveUser(userId, user);
+
+  return true;
+}
+async function unlockAchievement(userId, achievementKey) {
+  await pool.query(`
+    INSERT INTO uno_achievements (user_id, achievement_key, unlocked, unlocked_at)
+    VALUES ($1, $2, true, NOW())
+    ON CONFLICT (user_id, achievement_key)
+    DO UPDATE SET unlocked = true, unlocked_at = NOW()
+  `, [userId, achievementKey]);
+}
+
+async function hasAchievement(userId, achievementKey) {
+  const res = await pool.query(`
+    SELECT unlocked
+    FROM uno_achievements
+    WHERE user_id = $1 AND achievement_key = $2
+  `, [userId, achievementKey]);
+
+  return !!res.rows[0]?.unlocked;
+}
+
+async function getAchievements(userId) {
+  const res = await pool.query(`
+    SELECT achievement_key, unlocked, unlocked_at
+    FROM uno_achievements
+    WHERE user_id = $1
+    ORDER BY unlocked_at DESC NULLS LAST, achievement_key ASC
+  `, [userId]);
+
+  return res.rows;
+}
+async function unlockAchievement(userId, achievementKey) {
+  await pool.query(`
+    INSERT INTO uno_achievements (user_id, achievement_key, unlocked, unlocked_at)
+    VALUES ($1, $2, true, NOW())
+    ON CONFLICT (user_id, achievement_key)
+    DO UPDATE SET unlocked = true, unlocked_at = NOW()
+  `, [userId, achievementKey]);
+}
+
+async function hasAchievement(userId, achievementKey) {
+  const res = await pool.query(`
+    SELECT unlocked
+    FROM uno_achievements
+    WHERE user_id = $1 AND achievement_key = $2
+  `, [userId, achievementKey]);
+
+  return !!res.rows[0]?.unlocked;
+}
+
+async function getAchievements(userId) {
+  const res = await pool.query(`
+    SELECT achievement_key, unlocked, unlocked_at
+    FROM uno_achievements
+    WHERE user_id = $1
+    ORDER BY unlocked_at DESC NULLS LAST, achievement_key ASC
+  `, [userId]);
+
+  return res.rows;
+}
+
 const TEMP_CATEGORY_NAME = "UNO TEMP";
 const TEMP_DELETE_DELAY_MS = 15000;
 const REMATCH_ROOM_TIMEOUT_MS = 60000;
@@ -2561,6 +2833,13 @@ for (const p of game.players) {
     await endGameSQL(p.id, false);
   }
 }
+  if (game.players.length === 2) {
+  const loser = game.players.find(p => p.id !== winnerId);
+  if (loser) {
+    await updateRankResult(winnerId, loser.id, 25);
+  }
+}
+  
   const endEmbed = new EmbedBuilder()
     .setColor(EMBED.success)
     .setTitle("🏆 Fin de partida")
