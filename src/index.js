@@ -69,50 +69,38 @@ const EMBED = {
   gray: 0x95a5a6
 };
 
-const BOT_DIFFICULTIES = {
-  easy: {
-    id: "easy",
-    name: "Fácil",
-    desc: "Ideal para empezar",
+/* =========================================================
+   BOTS MULTIPLES
+========================================================= */
+
+const BOT_PROFILES = {
+  machabot: {
+    id: "machabot",
+    name: "MachaBOT",
+    style: "strategist",
+    difficulty: "normal",
     unlockVsBotWins: 0,
-    rewardCoinsWin: 20,
-    rewardXpWin: 25,
-    rewardCoinsLose: 8,
-    rewardXpLose: 12
-  },
-  normal: {
-    id: "normal",
-    name: "Normal",
-    desc: "Más equilibrado",
-    unlockVsBotWins: 3,
-    rewardCoinsWin: 30,
-    rewardXpWin: 40,
+    rewardCoinsWin: 35,
+    rewardXpWin: 45,
     rewardCoinsLose: 12,
-    rewardXpLose: 18
+    rewardXpLose: 18,
+    description: "Estratega · piensa mejor las jugadas"
   },
-  hard: {
-    id: "hard",
-    name: "Difícil",
-    desc: "Juega mejor y castiga más",
-    unlockVsBotWins: 8,
-    rewardCoinsWin: 45,
-    rewardXpWin: 60,
+  juankbot: {
+    id: "juankbot",
+    name: "JuankBOT",
+    style: "aggressive",
+    difficulty: "hard",
+    unlockVsBotWins: 4,
+    rewardCoinsWin: 50,
+    rewardXpWin: 65,
     rewardCoinsLose: 18,
-    rewardXpLose: 25
-  },
-  insane: {
-    id: "insane",
-    name: "Extremo",
-    desc: "La dificultad más dura",
-    unlockVsBotWins: 15,
-    rewardCoinsWin: 70,
-    rewardXpWin: 90,
-    rewardCoinsLose: 25,
-    rewardXpLose: 35
+    rewardXpLose: 24,
+    description: "Agresivo · castiga con especiales"
   }
 };
 
-const BOT_DIFFICULTY_ORDER = ["easy", "normal", "hard", "insane"];
+const BOT_PROFILE_ORDER = ["machabot", "juankbot"];
 
 /* =========================================================
    TIENDA
@@ -132,33 +120,33 @@ const STORE_ITEMS = {
       name: "Caja rara",
       emoji: "🎁",
       price: 300,
-      description: "Mejores chances de recompensas raras"
+      description: "Mejores recompensas"
     },
     {
       id: "epic_box",
       name: "Caja épica",
       emoji: "💎",
       price: 700,
-      description: "Alta chance de recompensas buenas"
+      description: "Alta chance de recompensas raras"
     }
   ],
   titles: [
-    { id: "rookie", name: "🐣 Novato", price: 50, description: "Tu primer título" },
-    { id: "bot_hunter_title", name: "🤖 Cazador de Bots", price: 220, description: "Para fans del PvE" },
-    { id: "unstoppable", name: "🔥 Imparable", price: 400, description: "Puro ego" },
-    { id: "uno_king", name: "👑 Rey del UNO", price: 900, description: "Status máximo" }
+    { id: "rookie_title", name: "🐣 Novato", price: 50, description: "Tu primer título" },
+    { id: "bot_hunter_title", name: "🤖 Cazador de Bots", price: 220, description: "Ideal para PvE" },
+    { id: "unstoppable_title", name: "🔥 Imparable", price: 400, description: "Se ve en tu perfil" },
+    { id: "king_title", name: "👑 Rey del UNO", price: 900, description: "Status máximo" }
   ],
   badges: [
-    { id: "champion_badge", name: "🏆 Campeón", price: 250, description: "Se muestra en tu perfil" },
+    { id: "champion_badge", name: "🏆 Campeón", price: 250, description: "Insignia de perfil" },
     { id: "pro_badge", name: "⚡ Pro", price: 350, description: "Para destacar" },
-    { id: "tryhard_badge", name: "💀 Tryhard", price: 700, description: "Te lo ganaste" }
+    { id: "tryhard_badge", name: "💀 Tryhard", price: 700, description: "Solo para intensos" }
   ],
   boosts: [
     {
       id: "xp_boost_3",
       name: "✨ x2 XP (3 partidas)",
       price: 200,
-      description: "Duplica el XP ganado durante 3 partidas",
+      description: "Duplica el XP por 3 partidas",
       effect: "xp",
       multiplier: 2,
       uses: 3
@@ -167,7 +155,7 @@ const STORE_ITEMS = {
       id: "coin_boost_5",
       name: "🪙 +50% monedas (5 partidas)",
       price: 250,
-      description: "Más monedas durante 5 partidas",
+      description: "Más monedas por 5 partidas",
       effect: "coins",
       multiplier: 1.5,
       uses: 5
@@ -197,14 +185,20 @@ const ACHIEVEMENTS = [
   {
     id: "bot_hunter",
     name: "Cazador de bots",
-    description: "Ganale 3 veces al bot.",
+    description: "Ganale 3 veces a bots.",
     chance: "Alta · 60%"
   },
   {
-    id: "bot_slayer",
-    name: "Destructor de IA",
-    description: "Ganale 10 veces al bot.",
-    chance: "Media · 35%"
+    id: "machabot_win",
+    name: "Pensaste mejor",
+    description: "Ganale a MachaBOT.",
+    chance: "Media · 40%"
+  },
+  {
+    id: "juankbot_win",
+    name: "Sobreviviente agresivo",
+    description: "Ganale a JuankBOT.",
+    chance: "Baja · 20%"
   },
   {
     id: "pvp_fighter",
@@ -249,34 +243,10 @@ const ACHIEVEMENTS = [
     chance: "Alta · 55%"
   },
   {
-    id: "veteran_50",
-    name: "Ultra veterano",
-    description: "Jugá 50 partidas.",
-    chance: "Media · 25%"
-  },
-  {
-    id: "comeback_10",
-    name: "Remontada épica",
-    description: "Ganá una partida después de haber tenido 10 o más cartas.",
-    chance: "Baja · 15%"
-  },
-  {
-    id: "normal_unlock",
-    name: "Subiendo el nivel",
-    description: "Desbloqueá la dificultad Normal.",
-    chance: "Alta · 55%"
-  },
-  {
-    id: "hard_unlock",
-    name: "Sin miedo",
-    description: "Desbloqueá la dificultad Difícil.",
-    chance: "Media · 30%"
-  },
-  {
-    id: "insane_unlock",
-    name: "Tocando el infierno",
-    description: "Desbloqueá la dificultad Extremo.",
-    chance: "Baja · 10%"
+    id: "collector_5",
+    name: "Coleccionista",
+    description: "Conseguí 5 objetos de colección.",
+    chance: "Media · 35%"
   }
 ];
 
@@ -296,7 +266,7 @@ const DAILY_MISSION_POOL = [
   {
     id: "win_games",
     name: "Victoria diaria",
-    description: "Ganá 1 partida",
+    description: "Ganale a cualquiera 1 vez",
     target: 1,
     rewardXp: 35,
     rewardCoins: 30
@@ -312,7 +282,7 @@ const DAILY_MISSION_POOL = [
   {
     id: "win_vs_bot",
     name: "Cazador del día",
-    description: "Ganale 1 vez al bot",
+    description: "Ganale 1 vez a un bot",
     target: 1,
     rewardXp: 30,
     rewardCoins: 25
@@ -328,7 +298,8 @@ const slashCommands = [
   new SlashCommandBuilder().setName("reglas").setDescription("Mostrar reglas simples de UNO"),
   new SlashCommandBuilder().setName("ayuda").setDescription("Ver ayuda y comandos"),
   new SlashCommandBuilder().setName("top").setDescription("Ver ranking de jugadores"),
-  new SlashCommandBuilder().setName("tienda").setDescription("Abrir la tienda de UNO"),
+  new SlashCommandBuilder().setName("tienda").setDescription("Abrir la tienda"),
+  new SlashCommandBuilder().setName("inventario").setDescription("Ver tu inventario y colección"),
   new SlashCommandBuilder()
     .setName("perfil")
     .setDescription("Ver perfil de UNO")
@@ -337,7 +308,7 @@ const slashCommands = [
     ),
   new SlashCommandBuilder().setName("historial").setDescription("Ver últimas partidas"),
   new SlashCommandBuilder().setName("logros").setDescription("Ver logros"),
-  new SlashCommandBuilder().setName("misiones").setDescription("Ver tus misiones diarias")
+  new SlashCommandBuilder().setName("misiones").setDescription("Ver misiones diarias")
 ].map((c) => c.toJSON());
 
 async function registerSlashCommands() {
@@ -405,7 +376,7 @@ function addMatchToHistory(entry) {
 }
 
 /* =========================================================
-   STATS / XP / LEVEL / INVENTARIO
+   STATS / XP / INVENTARIO / COLECCION
 ========================================================= */
 
 function xpRequiredForLevel(level) {
@@ -466,6 +437,13 @@ function createDefaultPlayer(username = "Jugador") {
     ownedBadges: [],
     equippedBadge: null,
     activeBoosts: [],
+    boxesOpened: 0,
+    botsDefeated: [],
+    collection: {
+      titles: [],
+      badges: [],
+      bots: []
+    },
     dailyMissions: {
       date: todayKey(),
       missions: DAILY_MISSION_POOL.map(createDailyMissionEntry)
@@ -494,6 +472,11 @@ function normalizePlayer(player) {
   if (!Array.isArray(normalized.ownedTitles)) normalized.ownedTitles = [];
   if (!Array.isArray(normalized.ownedBadges)) normalized.ownedBadges = [];
   if (!Array.isArray(normalized.activeBoosts)) normalized.activeBoosts = [];
+  if (!Array.isArray(normalized.botsDefeated)) normalized.botsDefeated = [];
+  if (!normalized.collection) normalized.collection = { titles: [], badges: [], bots: [] };
+  if (!Array.isArray(normalized.collection.titles)) normalized.collection.titles = [];
+  if (!Array.isArray(normalized.collection.badges)) normalized.collection.badges = [];
+  if (!Array.isArray(normalized.collection.bots)) normalized.collection.bots = [];
 
   return normalized;
 }
@@ -516,10 +499,24 @@ function getPlayerStats(userId, username = "Jugador") {
   return stats[userId];
 }
 
-function saveSinglePlayer(userId, player) {
-  const stats = loadStats();
-  stats[userId] = normalizePlayer(player);
-  saveStats(stats);
+function addToCollection(player, type, value) {
+  if (!player.collection) {
+    player.collection = { titles: [], badges: [], bots: [] };
+  }
+  if (!Array.isArray(player.collection[type])) {
+    player.collection[type] = [];
+  }
+  if (!player.collection[type].includes(value)) {
+    player.collection[type].push(value);
+  }
+}
+
+function collectionCount(player) {
+  return (
+    (player.collection?.titles?.length || 0) +
+    (player.collection?.badges?.length || 0) +
+    (player.collection?.bots?.length || 0)
+  );
 }
 
 function getEquippedTitle(player) {
@@ -532,9 +529,7 @@ function getEquippedBadge(player) {
 
 function getActiveBoostText(player) {
   if (!player.activeBoosts?.length) return "Ninguno";
-  return player.activeBoosts
-    .map((b) => `${b.name} (${b.usesLeft} partidas)`)
-    .join("\n");
+  return player.activeBoosts.map((b) => `${b.name} (${b.usesLeft} partidas)`).join("\n");
 }
 
 function addRewards(player, xp, coins) {
@@ -549,13 +544,8 @@ function applyBoostsToRewards(player, baseXp, baseCoins) {
   for (const boost of player.activeBoosts || []) {
     if (boost.usesLeft <= 0) continue;
 
-    if (boost.effect === "xp") {
-      xp = Math.round(xp * boost.multiplier);
-    }
-
-    if (boost.effect === "coins") {
-      coins = Math.round(coins * boost.multiplier);
-    }
+    if (boost.effect === "xp") xp = Math.round(xp * boost.multiplier);
+    if (boost.effect === "coins") coins = Math.round(coins * boost.multiplier);
   }
 
   return { xp, coins };
@@ -604,16 +594,9 @@ function unlockAchievement(stats, userId, achievementId) {
   return false;
 }
 
-function getUnlockedDifficulties(player) {
-  const vsBotWins = player?.vsBotWins || 0;
-  return BOT_DIFFICULTY_ORDER.filter(
-    (id) => vsBotWins >= BOT_DIFFICULTIES[id].unlockVsBotWins
-  );
-}
-
-function getHighestUnlockedDifficulty(player) {
-  const unlocked = getUnlockedDifficulties(player);
-  return unlocked[unlocked.length - 1] || "easy";
+function getUnlockedBots(player) {
+  const wins = player?.vsBotWins || 0;
+  return BOT_PROFILE_ORDER.filter((id) => wins >= BOT_PROFILES[id].unlockVsBotWins);
 }
 
 function evaluateAchievements(stats, userId, context = {}) {
@@ -628,23 +611,18 @@ function evaluateAchievements(stats, userId, context = {}) {
     }
   };
 
-  const highestUnlocked = getHighestUnlockedDifficulty(player);
-
   tryUnlock("first_win", player.wins >= 1);
   tryUnlock("bot_hunter", player.vsBotWins >= 3);
-  tryUnlock("bot_slayer", player.vsBotWins >= 10);
+  tryUnlock("machabot_win", player.botsDefeated.includes("MachaBOT"));
+  tryUnlock("juankbot_win", player.botsDefeated.includes("JuankBOT"));
   tryUnlock("pvp_fighter", player.pvpWins >= 5);
   tryUnlock("streak_3", player.winStreak >= 3);
   tryUnlock("streak_5", player.winStreak >= 5);
   tryUnlock("veteran_20", player.gamesPlayed >= 20);
-  tryUnlock("veteran_50", player.gamesPlayed >= 50);
   tryUnlock("quick_win", context.quickWin === true);
   tryUnlock("uno_master", context.usedUnoAndWon === true);
   tryUnlock("wild4_finisher", context.wonWithWild4 === true);
-  tryUnlock("comeback_10", context.maxHandRecovered >= 10);
-  tryUnlock("normal_unlock", ["normal", "hard", "insane"].includes(highestUnlocked));
-  tryUnlock("hard_unlock", ["hard", "insane"].includes(highestUnlocked));
-  tryUnlock("insane_unlock", highestUnlocked === "insane");
+  tryUnlock("collector_5", collectionCount(player) >= 5);
 
   return unlockedNow;
 }
@@ -689,10 +667,7 @@ function missionsSummaryText(user) {
   const daily = ensureDailyMissions(stats);
 
   return daily.missions
-    .map((m) => {
-      const emoji = m.claimed ? "✅" : "⬜";
-      return `${emoji} ${m.name}: ${m.progress}/${m.target}`;
-    })
+    .map((m) => `${m.claimed ? "✅" : "⬜"} ${m.name}: ${m.progress}/${m.target}`)
     .join("\n");
 }
 
@@ -779,22 +754,22 @@ function winRate(player) {
   return Math.round(((player.wins || 0) / gp) * 100);
 }
 
-function difficultyText(player) {
-  const unlocked = getUnlockedDifficulties(player);
-  return unlocked.map((id) => BOT_DIFFICULTIES[id].name).join(", ");
+function unlockedBotText(player) {
+  const unlocked = getUnlockedBots(player);
+  return unlocked.map((id) => BOT_PROFILES[id].name).join(", ") || "Ninguno";
 }
 
-function nextDifficultyGoal(player) {
-  const vsBotWins = player?.vsBotWins || 0;
+function nextBotGoal(player) {
+  const wins = player?.vsBotWins || 0;
 
-  for (const id of BOT_DIFFICULTY_ORDER) {
-    const needed = BOT_DIFFICULTIES[id].unlockVsBotWins;
-    if (vsBotWins < needed) {
-      return `${BOT_DIFFICULTIES[id].name}: ${vsBotWins}/${needed} victorias vs bot`;
+  for (const id of BOT_PROFILE_ORDER) {
+    const needed = BOT_PROFILES[id].unlockVsBotWins;
+    if (wins < needed) {
+      return `${BOT_PROFILES[id].name}: ${wins}/${needed} victorias vs bot`;
     }
   }
 
-  return "Todas las dificultades desbloqueadas";
+  return "Todos los bots desbloqueados";
 }
 
 function createMatchStatEntry() {
@@ -825,12 +800,12 @@ async function getOrCreateTempCategory(guild) {
   return category;
 }
 
-async function createTempUnoChannel(guild, user) {
+async function createTempUnoChannel(guild, user, botName) {
   const category = await getOrCreateTempCategory(guild);
-  const safeName = cleanChannelName(user.username);
+  const safeName = cleanChannelName(`${user.username}-${botName || "bot"}`);
 
   const channel = await guild.channels.create({
-    name: `uno-${safeName}`,
+    name: `uno-${safeName}`.slice(0, 30),
     type: ChannelType.GuildText,
     parent: category.id,
     permissionOverwrites: [
@@ -1019,8 +994,9 @@ function getColorName(color) {
    PARTIDAS
 ========================================================= */
 
-function createBaseGame(channel, ownerUser, vsBot = false, botDifficulty = "easy") {
+function createBaseGame(channel, ownerUser, vsBot = false, botProfileId = "machabot") {
   const gameId = `${channel.id}_${Date.now()}`;
+  const botProfile = BOT_PROFILES[botProfileId] || BOT_PROFILES.machabot;
 
   const game = {
     id: gameId,
@@ -1045,7 +1021,7 @@ function createBaseGame(channel, ownerUser, vsBot = false, botDifficulty = "easy
     messageId: null,
     lastAction: "Lobby creado.",
     vsBot,
-    botDifficulty,
+    botProfileId,
     unoCalled: {},
     saidUnoThisGame: {},
     turnNumber: 0,
@@ -1058,7 +1034,7 @@ function createBaseGame(channel, ownerUser, vsBot = false, botDifficulty = "easy
   if (vsBot) {
     game.players.push({
       id: "UNO_BOT",
-      username: `UNO Bot (${BOT_DIFFICULTIES[botDifficulty]?.name || "Fácil"})`,
+      username: botProfile.name,
       isBot: true
     });
   }
@@ -1113,22 +1089,6 @@ function startGame(game) {
   game.currentColor = firstCard.color === "wild" ? "red" : firstCard.color;
   game.currentPlayerIndex = 0;
   game.lastAction = `Empezó la partida · Carta inicial ${firstCard.label}`;
-
-  if (firstCard.type === "skip") {
-    game.currentPlayerIndex = nextPlayerIndex(game, 1);
-    game.lastAction += " · Primer turno saltado";
-  } else if (firstCard.type === "reverse" && game.players.length === 2) {
-    game.currentPlayerIndex = nextPlayerIndex(game, 2);
-    game.lastAction += " · Reversa actúa como salto";
-  } else if (firstCard.type === "reverse") {
-    game.direction *= -1;
-    game.lastAction += " · Cambió el sentido";
-  } else if (firstCard.type === "draw2") {
-    const next = game.players[nextPlayerIndex(game, 1)];
-    drawCards(game, next.id, 2);
-    game.currentPlayerIndex = nextPlayerIndex(game, 2);
-    game.lastAction += ` · ${next.username} robó 2`;
-  }
 }
 
 function tryJoinLobby(game, user) {
@@ -1168,7 +1128,7 @@ function createRematchOfferFromGame(game) {
       isBot: false
     })),
     vsBot: game.vsBot,
-    botDifficulty: game.botDifficulty || "easy",
+    botProfileId: game.botProfileId || "machabot",
     accepted: [],
     createdAt: Date.now(),
     tempChannel: game.tempChannel
@@ -1196,7 +1156,7 @@ async function startRematchFromOffer(channel, offer) {
   clearRoomDeleteTimer(channel.id);
 
   const owner = offer.players.find((p) => p.id === offer.ownerId) || offer.players[0];
-  const game = createBaseGame(channel, owner, offer.vsBot, offer.botDifficulty);
+  const game = createBaseGame(channel, owner, offer.vsBot, offer.botProfileId);
 
   if (!offer.vsBot) {
     game.players = offer.players.map((p) => ({
@@ -1221,6 +1181,8 @@ async function startRematchFromOffer(channel, offer) {
   setGameReferences(game);
   startGame(game);
 
+  const botName = BOT_PROFILES[offer.botProfileId]?.name || "BOT";
+
   await channel.send({
     embeds: [
       new EmbedBuilder()
@@ -1228,7 +1190,7 @@ async function startRematchFromOffer(channel, offer) {
         .setTitle("🔁 Revancha iniciada")
         .setDescription(
           offer.vsBot
-            ? `Nueva partida vs bot en dificultad **${BOT_DIFFICULTIES[offer.botDifficulty].name}**`
+            ? `Nueva partida contra **${botName}**`
             : "Nueva partida con los mismos jugadores"
         )
     ]
@@ -1263,6 +1225,7 @@ function scheduleTempRoomDeletion(channel, ms, reason) {
 ========================================================= */
 
 function openBasicBox(player) {
+  player.boxesOpened += 1;
   const roll = Math.random();
 
   if (roll < 0.45) {
@@ -1281,6 +1244,7 @@ function openBasicBox(player) {
     const titleReward = STORE_ITEMS.titles[Math.floor(Math.random() * STORE_ITEMS.titles.length)];
     if (!player.ownedTitles.includes(titleReward.name)) {
       player.ownedTitles.push(titleReward.name);
+      addToCollection(player, "titles", titleReward.name);
       return { title: "📦 Caja básica", description: `Desbloqueaste el título **${titleReward.name}**.` };
     }
 
@@ -1292,6 +1256,7 @@ function openBasicBox(player) {
   const badgeReward = STORE_ITEMS.badges[Math.floor(Math.random() * STORE_ITEMS.badges.length)];
   if (!player.ownedBadges.includes(badgeReward.name)) {
     player.ownedBadges.push(badgeReward.name);
+    addToCollection(player, "badges", badgeReward.name);
     return { title: "📦 Caja básica", description: `Desbloqueaste la insignia **${badgeReward.name}**.` };
   }
 
@@ -1300,6 +1265,7 @@ function openBasicBox(player) {
 }
 
 function openRareBox(player) {
+  player.boxesOpened += 1;
   const roll = Math.random();
 
   if (roll < 0.35) {
@@ -1318,6 +1284,7 @@ function openRareBox(player) {
     const titleReward = STORE_ITEMS.titles[Math.floor(Math.random() * STORE_ITEMS.titles.length)];
     if (!player.ownedTitles.includes(titleReward.name)) {
       player.ownedTitles.push(titleReward.name);
+      addToCollection(player, "titles", titleReward.name);
       return { title: "🎁 Caja rara", description: `Desbloqueaste el título **${titleReward.name}**.` };
     }
 
@@ -1329,6 +1296,7 @@ function openRareBox(player) {
     const badgeReward = STORE_ITEMS.badges[Math.floor(Math.random() * STORE_ITEMS.badges.length)];
     if (!player.ownedBadges.includes(badgeReward.name)) {
       player.ownedBadges.push(badgeReward.name);
+      addToCollection(player, "badges", badgeReward.name);
       return { title: "🎁 Caja rara", description: `Desbloqueaste la insignia **${badgeReward.name}**.` };
     }
 
@@ -1349,6 +1317,7 @@ function openRareBox(player) {
 }
 
 function openEpicBox(player) {
+  player.boxesOpened += 1;
   const roll = Math.random();
 
   if (roll < 0.25) {
@@ -1367,6 +1336,7 @@ function openEpicBox(player) {
     const titleReward = STORE_ITEMS.titles[Math.floor(Math.random() * STORE_ITEMS.titles.length)];
     if (!player.ownedTitles.includes(titleReward.name)) {
       player.ownedTitles.push(titleReward.name);
+      addToCollection(player, "titles", titleReward.name);
       return { title: "💎 Caja épica", description: `Desbloqueaste el título **${titleReward.name}**.` };
     }
 
@@ -1378,6 +1348,7 @@ function openEpicBox(player) {
     const badgeReward = STORE_ITEMS.badges[Math.floor(Math.random() * STORE_ITEMS.badges.length)];
     if (!player.ownedBadges.includes(badgeReward.name)) {
       player.ownedBadges.push(badgeReward.name);
+      addToCollection(player, "badges", badgeReward.name);
       return { title: "💎 Caja épica", description: `Desbloqueaste la insignia **${badgeReward.name}**.` };
     }
 
@@ -1425,7 +1396,6 @@ function buyStoreItem(userId, username, itemId) {
   player.coins -= item.price;
 
   let resultText = "";
-  let autoEquip = false;
 
   if (STORE_ITEMS.boxes.some((x) => x.id === itemId)) {
     const result = openBox(player, itemId);
@@ -1437,8 +1407,8 @@ function buyStoreItem(userId, username, itemId) {
     }
     player.ownedTitles.push(item.name);
     player.equippedTitle = item.name;
+    addToCollection(player, "titles", item.name);
     resultText = `Compraste y equipaste el título **${item.name}**.`;
-    autoEquip = true;
   } else if (STORE_ITEMS.badges.some((x) => x.id === itemId)) {
     if (player.ownedBadges.includes(item.name)) {
       player.coins += item.price;
@@ -1446,8 +1416,8 @@ function buyStoreItem(userId, username, itemId) {
     }
     player.ownedBadges.push(item.name);
     player.equippedBadge = item.name;
+    addToCollection(player, "badges", item.name);
     resultText = `Compraste y equipaste la insignia **${item.name}**.`;
-    autoEquip = true;
   } else if (STORE_ITEMS.boosts.some((x) => x.id === itemId)) {
     player.activeBoosts.push({
       id: `${item.id}_${Date.now()}`,
@@ -1466,7 +1436,6 @@ function buyStoreItem(userId, username, itemId) {
     ok: true,
     item,
     resultText,
-    autoEquip,
     newCoins: player.coins
   };
 }
@@ -1519,13 +1488,14 @@ function helpEmbed() {
         "`/ayuda` → ayuda y comandos",
         "`/reglas` → reglas del juego",
         "`/top` → ranking global",
-        "`/tienda` → abrir la tienda",
+        "`/tienda` → tienda pública",
+        "`/inventario` → ver inventario y colección",
         "`/perfil [usuario]` → ver perfil",
         "`/historial` → últimas partidas",
         "`/logros` → logros con páginas",
         "`/misiones` → ver misiones diarias",
         "",
-        "Ganando contra el bot desbloqueás dificultades nuevas."
+        "Podés elegir entre **MachaBOT** y **JuankBOT**."
       ].join("\n")
     );
 }
@@ -1549,37 +1519,32 @@ function rulesEmbed() {
     );
 }
 
-function difficultySelectEmbed(user) {
+function botSelectEmbed(user) {
   const stats = getPlayerStats(user.id, user.username);
-  const unlocked = getUnlockedDifficulties(stats);
+  const unlocked = getUnlockedBots(stats);
 
-  const text = BOT_DIFFICULTY_ORDER.map((id) => {
-    const diff = BOT_DIFFICULTIES[id];
+  const text = BOT_PROFILE_ORDER.map((id) => {
+    const bot = BOT_PROFILES[id];
     const ok = unlocked.includes(id);
-    return `${ok ? "✅" : "🔒"} **${diff.name}** — ${diff.desc} ${
-      ok ? "" : `(se desbloquea con ${diff.unlockVsBotWins} victorias vs bot)`
+    return `${ok ? "✅" : "🔒"} **${bot.name}** — ${bot.description} ${
+      ok ? "" : `(se desbloquea con ${bot.unlockVsBotWins} victorias vs bot)`
     }`;
   }).join("\n");
 
   return new EmbedBuilder()
     .setColor(EMBED.purple)
-    .setTitle("🤖 Elegí dificultad")
+    .setTitle("🤖 Elegí rival")
     .setDescription(text);
 }
 
 function lobbyEmbed(game) {
-  const playersText = game.players
-    .map((p) => `${p.isBot ? "🤖" : "👤"} ${p.username}`)
-    .join("\n");
+  const playersText = game.players.map((p) => `${p.isBot ? "🤖" : "👤"} ${p.username}`).join("\n");
+  const botName = BOT_PROFILES[game.botProfileId]?.name || "BOT";
 
   return new EmbedBuilder()
     .setColor(EMBED.purple)
     .setTitle(game.vsBot ? "🤖 Partida vs Bot" : "🎮 Lobby UNO")
-    .setDescription(
-      game.vsBot
-        ? `Preparando partida...\nDificultad: **${BOT_DIFFICULTIES[game.botDifficulty].name}**`
-        : "Esperando jugadores..."
-    )
+    .setDescription(game.vsBot ? `Preparando partida...\nRival: **${botName}**` : "Esperando jugadores...")
     .addFields({
       name: "Jugadores",
       value: playersText || "Sin jugadores"
@@ -1590,6 +1555,7 @@ function gameEmbed(game) {
   const topCard = getTopCard(game);
   const currentPlayer = getCurrentPlayer(game);
   const color = getCurrentColor(game);
+  const botName = BOT_PROFILES[game.botProfileId]?.name || "BOT";
 
   const playersText = game.players
     .map((p, idx) => {
@@ -1599,10 +1565,6 @@ function gameEmbed(game) {
     })
     .join("\n");
 
-  const extra = game.vsBot
-    ? `\n**Bot:** ${BOT_DIFFICULTIES[game.botDifficulty].name}`
-    : "";
-
   return new EmbedBuilder()
     .setColor(EMBED.dark)
     .setTitle("🃏 UNO")
@@ -1610,8 +1572,9 @@ function gameEmbed(game) {
       [
         `**Carta:** ${topCard.label}`,
         `**Color:** ${COLORS[color]} ${getColorName(color)}`,
-        `**Turno:** ${currentPlayer.username}${extra}`
-      ].join("\n")
+        `**Turno:** ${currentPlayer.username}`,
+        game.vsBot ? `**Rival:** ${botName}` : null
+      ].filter(Boolean).join("\n")
     )
     .addFields(
       { name: "Jugadores", value: playersText || "Sin jugadores" },
@@ -1626,10 +1589,7 @@ function topEmbed() {
     ranking.length === 0
       ? "Todavía no hay jugadores."
       : ranking
-          .map(
-            (p, i) =>
-              `**${i + 1}.** ${p.username} — ⚡ ${p.elo} · 🆙 Nivel ${p.level}`
-          )
+          .map((p, i) => `**${i + 1}.** ${p.username} — ⚡ ${p.elo} · 🆙 Nivel ${p.level}`)
           .join("\n");
 
   return new EmbedBuilder()
@@ -1643,7 +1603,6 @@ function profileEmbed(user) {
   const rank = getPlayerRank(user.id);
   const achievementCount = Array.isArray(stats.achievements) ? stats.achievements.length : 0;
   const lvl = computeLevelFromXp(stats.xp || 0);
-  const highestDiff = BOT_DIFFICULTIES[getHighestUnlockedDifficulty(stats)].name;
 
   return new EmbedBuilder()
     .setColor(EMBED.brand)
@@ -1668,16 +1627,14 @@ function profileEmbed(user) {
         `📢 UNO dicho: **${stats.unoCalls || 0}**`,
         `💥 UNO olvidado: **${stats.unoFails || 0}**`,
         `🃏 Cartas jugadas: **${stats.cardsPlayed || 0}**`,
-        `⚡ Victorias rápidas: **${stats.fastWins || 0}**`,
-        `🤖 Máxima dificultad: **${highestDiff}**`,
         `📈 Posición: **${rank ? `#${rank}` : "Sin rank"}**`,
         `🏅 Logros: **${achievementCount}/${ACHIEVEMENTS.length}**`
       ].join("\n")
     )
     .addFields(
       {
-        name: "Dificultades desbloqueadas",
-        value: difficultyText(stats) || "Fácil"
+        name: "Bots desbloqueados",
+        value: unlockedBotText(stats) || "Ninguno"
       },
       {
         name: "Boosts activos",
@@ -1685,7 +1642,7 @@ function profileEmbed(user) {
       },
       {
         name: "Siguiente meta",
-        value: nextDifficultyGoal(stats)
+        value: nextBotGoal(stats)
       }
     );
 }
@@ -1700,7 +1657,7 @@ function historyEmbed() {
           .map(
             (h, i) =>
               `**${i + 1}.** ${h.winner} ganó\n${h.players.join(" vs ")}\nModo: ${h.mode}${
-                h.difficulty ? ` · Dif: ${h.difficulty}` : ""
+                h.bot ? ` · Bot: ${h.bot}` : ""
               } · Turnos: ${h.turns}`
           )
           .join("\n\n");
@@ -1755,7 +1712,6 @@ function achievementsEmbed(user, page = 0) {
 function missionsEmbed(user) {
   const stats = getPlayerStats(user.id, user.username);
   const daily = ensureDailyMissions(stats);
-
   const text = daily.missions.map(missionStatusText).join("\n\n");
 
   return new EmbedBuilder()
@@ -1776,7 +1732,7 @@ function shopMainEmbed(user) {
     .setTitle("🛒 Tienda UNO")
     .setDescription(
       [
-        `🪙 Tus monedas: **${stats.coins || 0}**`,
+        `🪙 Monedas de ${user.username}: **${stats.coins || 0}**`,
         "",
         "Elegí una categoría:",
         "📦 Cajas",
@@ -1790,26 +1746,6 @@ function shopMainEmbed(user) {
 function shopCategoryEmbed(user, categoryId) {
   const stats = getPlayerStats(user.id, user.username);
   const items = STORE_ITEMS[categoryId] || [];
-
-  const text =
-    items.length === 0
-      ? "No hay objetos."
-      : items
-          .map((item) => {
-            let ownedText = "";
-
-            if (categoryId === "titles" && stats.ownedTitles.includes(item.name)) {
-              ownedText = " · ✅ Ya lo tenés";
-            }
-
-            if (categoryId === "badges" && stats.ownedBadges.includes(item.name)) {
-              ownedText = " · ✅ Ya la tenés";
-            }
-
-            return `${item.emoji || "🛍️"} **${item.name}** — 🪙 ${item.price}${ownedText}\n${item.description}`;
-          })
-          .join("\n\n");
-
   const titleMap = {
     boxes: "📦 Cajas",
     titles: "🏷️ Títulos",
@@ -1817,10 +1753,22 @@ function shopCategoryEmbed(user, categoryId) {
     boosts: "🚀 Boosts"
   };
 
+  const text =
+    items.length === 0
+      ? "No hay objetos."
+      : items
+          .map((item) => {
+            let ownedText = "";
+            if (categoryId === "titles" && stats.ownedTitles.includes(item.name)) ownedText = " · ✅ Ya lo tenés";
+            if (categoryId === "badges" && stats.ownedBadges.includes(item.name)) ownedText = " · ✅ Ya la tenés";
+            return `${item.emoji || "🛍️"} **${item.name}** — 🪙 ${item.price}${ownedText}\n${item.description}`;
+          })
+          .join("\n\n");
+
   return new EmbedBuilder()
     .setColor(EMBED.purple)
     .setTitle(`🛒 ${titleMap[categoryId] || "Tienda"}`)
-    .setDescription(`Tus monedas: **${stats.coins || 0}**`)
+    .setDescription(`Monedas de ${user.username}: **${stats.coins || 0}**`)
     .addFields({
       name: "Objetos",
       value: text.slice(0, 1024) || "Sin contenido"
@@ -1836,6 +1784,87 @@ function shopPurchaseEmbed(result) {
       name: "Monedas restantes",
       value: `🪙 ${result.newCoins}`
     });
+}
+
+function inventoryMainEmbed(user) {
+  const stats = getPlayerStats(user.id, user.username);
+
+  return new EmbedBuilder()
+    .setColor(EMBED.blue)
+    .setTitle(`🎒 Inventario de ${user.username}`)
+    .setDescription(
+      [
+        `🏷️ Títulos: **${stats.ownedTitles.length}**`,
+        `🎖️ Insignias: **${stats.ownedBadges.length}**`,
+        `🚀 Boosts activos: **${stats.activeBoosts.length}**`,
+        `📦 Cajas abiertas: **${stats.boxesOpened || 0}**`,
+        `🧩 Colección total: **${collectionCount(stats)}**`
+      ].join("\n")
+    );
+}
+
+function inventoryTitlesEmbed(user) {
+  const stats = getPlayerStats(user.id, user.username);
+  const text = stats.ownedTitles.length
+    ? stats.ownedTitles.map((t) => `${t === stats.equippedTitle ? "✅" : "•"} ${t}`).join("\n")
+    : "No tenés títulos.";
+
+  return new EmbedBuilder()
+    .setColor(EMBED.blue)
+    .setTitle(`🏷️ Títulos de ${user.username}`)
+    .setDescription(text.slice(0, 4096));
+}
+
+function inventoryBadgesEmbed(user) {
+  const stats = getPlayerStats(user.id, user.username);
+  const text = stats.ownedBadges.length
+    ? stats.ownedBadges.map((b) => `${b === stats.equippedBadge ? "✅" : "•"} ${b}`).join("\n")
+    : "No tenés insignias.";
+
+  return new EmbedBuilder()
+    .setColor(EMBED.blue)
+    .setTitle(`🎖️ Insignias de ${user.username}`)
+    .setDescription(text.slice(0, 4096));
+}
+
+function inventoryBoostsEmbed(user) {
+  const stats = getPlayerStats(user.id, user.username);
+  const text = stats.activeBoosts.length
+    ? stats.activeBoosts.map((b) => `• ${b.name} — ${b.usesLeft} partidas`).join("\n")
+    : "No tenés boosts activos.";
+
+  return new EmbedBuilder()
+    .setColor(EMBED.blue)
+    .setTitle(`🚀 Boosts de ${user.username}`)
+    .setDescription(text.slice(0, 4096));
+}
+
+function collectionEmbed(user) {
+  const stats = getPlayerStats(user.id, user.username);
+
+  return new EmbedBuilder()
+    .setColor(EMBED.purple)
+    .setTitle(`🧩 Colección de ${user.username}`)
+    .addFields(
+      {
+        name: "Títulos coleccionados",
+        value: stats.collection.titles.length
+          ? stats.collection.titles.join("\n").slice(0, 1024)
+          : "Ninguno"
+      },
+      {
+        name: "Insignias coleccionadas",
+        value: stats.collection.badges.length
+          ? stats.collection.badges.join("\n").slice(0, 1024)
+          : "Ninguna"
+      },
+      {
+        name: "Bots derrotados",
+        value: stats.collection.bots.length
+          ? stats.collection.bots.join("\n").slice(0, 1024)
+          : "Ninguno"
+      }
+    );
 }
 
 function playerPanelEmbed(game, user) {
@@ -1869,12 +1898,13 @@ function achievementUnlockEmbed(achievement) {
 }
 
 function rematchEmbed(offer) {
+  const botName = BOT_PROFILES[offer.botProfileId]?.name || "BOT";
   return new EmbedBuilder()
     .setColor(EMBED.purple)
     .setTitle("🔁 Revancha disponible")
     .setDescription(
       offer.vsBot
-        ? `Presioná **Revancha** para jugar otra partida contra el bot en dificultad **${BOT_DIFFICULTIES[offer.botDifficulty].name}**.`
+        ? `Presioná **Revancha** para jugar otra partida contra **${botName}**.`
         : `Aceptaciones: **${rematchAcceptedCount(offer)}/${offer.players.length}**`
     );
 }
@@ -1895,57 +1925,25 @@ function missionsCompletedEmbeds(missions) {
 function menuComponents() {
   return [
     new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId("uno_menu_find")
-        .setLabel("Buscar partida")
-        .setStyle(ButtonStyle.Primary)
-        .setEmoji("🎮"),
-      new ButtonBuilder()
-        .setCustomId("uno_menu_bot")
-        .setLabel("Jugar vs Bot")
-        .setStyle(ButtonStyle.Success)
-        .setEmoji("🤖"),
-      new ButtonBuilder()
-        .setCustomId("uno_menu_hand")
-        .setLabel("Mi mano")
-        .setStyle(ButtonStyle.Secondary)
-        .setEmoji("🃏")
+      new ButtonBuilder().setCustomId("uno_menu_find").setLabel("Buscar partida").setStyle(ButtonStyle.Primary).setEmoji("🎮"),
+      new ButtonBuilder().setCustomId("uno_menu_bot").setLabel("Jugar vs Bot").setStyle(ButtonStyle.Success).setEmoji("🤖"),
+      new ButtonBuilder().setCustomId("uno_menu_hand").setLabel("Mi mano").setStyle(ButtonStyle.Secondary).setEmoji("🃏")
     ),
     new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId("uno_menu_top")
-        .setLabel("Top")
-        .setStyle(ButtonStyle.Secondary)
-        .setEmoji("🏆"),
-      new ButtonBuilder()
-        .setCustomId("uno_menu_help")
-        .setLabel("Ayuda")
-        .setStyle(ButtonStyle.Secondary)
-        .setEmoji("❓"),
-      new ButtonBuilder()
-        .setCustomId("uno_menu_achievements")
-        .setLabel("Logros")
-        .setStyle(ButtonStyle.Secondary)
-        .setEmoji("🏅")
+      new ButtonBuilder().setCustomId("uno_menu_top").setLabel("Top").setStyle(ButtonStyle.Secondary).setEmoji("🏆"),
+      new ButtonBuilder().setCustomId("uno_menu_help").setLabel("Ayuda").setStyle(ButtonStyle.Secondary).setEmoji("❓"),
+      new ButtonBuilder().setCustomId("uno_menu_achievements").setLabel("Logros").setStyle(ButtonStyle.Secondary).setEmoji("🏅")
     ),
     new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId("uno_menu_missions")
-        .setLabel("Misiones")
-        .setStyle(ButtonStyle.Success)
-        .setEmoji("📅"),
-      new ButtonBuilder()
-        .setCustomId("uno_menu_shop")
-        .setLabel("Tienda")
-        .setStyle(ButtonStyle.Primary)
-        .setEmoji("🛒")
+      new ButtonBuilder().setCustomId("uno_menu_missions").setLabel("Misiones").setStyle(ButtonStyle.Success).setEmoji("📅"),
+      new ButtonBuilder().setCustomId("uno_menu_shop").setLabel("Tienda").setStyle(ButtonStyle.Primary).setEmoji("🛒"),
+      new ButtonBuilder().setCustomId("uno_menu_inventory").setLabel("Inventario").setStyle(ButtonStyle.Primary).setEmoji("🎒")
     )
   ];
 }
 
 function achievementsComponents(userId, page = 0) {
   const totalPages = Math.max(1, Math.ceil(ACHIEVEMENTS.length / ACHIEVEMENTS_PER_PAGE));
-
   return [
     new ActionRowBuilder().addComponents(
       new ButtonBuilder()
@@ -1962,29 +1960,29 @@ function achievementsComponents(userId, page = 0) {
   ];
 }
 
+function botSelectComponents(user) {
+  const stats = getPlayerStats(user.id, user.username);
+  const unlocked = getUnlockedBots(stats);
+
+  const buttons = BOT_PROFILE_ORDER.map((id) => {
+    const bot = BOT_PROFILES[id];
+    return new ButtonBuilder()
+      .setCustomId(`uno_selectbot_${id}`)
+      .setLabel(bot.name)
+      .setStyle(unlocked.includes(id) ? ButtonStyle.Success : ButtonStyle.Secondary)
+      .setDisabled(!unlocked.includes(id));
+  });
+
+  return [new ActionRowBuilder().addComponents(buttons)];
+}
+
 function shopMainComponents() {
   return [
     new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId("uno_shop_boxes")
-        .setLabel("Cajas")
-        .setStyle(ButtonStyle.Primary)
-        .setEmoji("📦"),
-      new ButtonBuilder()
-        .setCustomId("uno_shop_titles")
-        .setLabel("Títulos")
-        .setStyle(ButtonStyle.Primary)
-        .setEmoji("🏷️"),
-      new ButtonBuilder()
-        .setCustomId("uno_shop_badges")
-        .setLabel("Insignias")
-        .setStyle(ButtonStyle.Primary)
-        .setEmoji("🎖️"),
-      new ButtonBuilder()
-        .setCustomId("uno_shop_boosts")
-        .setLabel("Boosts")
-        .setStyle(ButtonStyle.Primary)
-        .setEmoji("🚀")
+      new ButtonBuilder().setCustomId("uno_shop_boxes").setLabel("Cajas").setStyle(ButtonStyle.Primary).setEmoji("📦"),
+      new ButtonBuilder().setCustomId("uno_shop_titles").setLabel("Títulos").setStyle(ButtonStyle.Primary).setEmoji("🏷️"),
+      new ButtonBuilder().setCustomId("uno_shop_badges").setLabel("Insignias").setStyle(ButtonStyle.Primary).setEmoji("🎖️"),
+      new ButtonBuilder().setCustomId("uno_shop_boosts").setLabel("Boosts").setStyle(ButtonStyle.Primary).setEmoji("🚀")
     )
   ];
 }
@@ -2010,54 +2008,31 @@ function shopCategoryComponents(categoryId) {
 
   rows.push(
     new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId("uno_shop_back")
-        .setLabel("Volver")
-        .setStyle(ButtonStyle.Secondary)
-        .setEmoji("⬅️")
+      new ButtonBuilder().setCustomId("uno_shop_back").setLabel("Volver").setStyle(ButtonStyle.Secondary).setEmoji("⬅️")
     )
   );
 
   return rows;
 }
 
-function difficultyComponents(user) {
-  const stats = getPlayerStats(user.id, user.username);
-  const unlocked = getUnlockedDifficulties(stats);
-
-  const buttons = BOT_DIFFICULTY_ORDER.map((id) => {
-    const diff = BOT_DIFFICULTIES[id];
-    const enabled = unlocked.includes(id);
-
-    return new ButtonBuilder()
-      .setCustomId(`uno_botdiff_${id}`)
-      .setLabel(diff.name)
-      .setStyle(enabled ? ButtonStyle.Success : ButtonStyle.Secondary)
-      .setDisabled(!enabled);
-  });
-
-  return [new ActionRowBuilder().addComponents(buttons.slice(0, 4))];
+function inventoryMainComponents() {
+  return [
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId("uno_inv_titles").setLabel("Títulos").setStyle(ButtonStyle.Primary).setEmoji("🏷️"),
+      new ButtonBuilder().setCustomId("uno_inv_badges").setLabel("Insignias").setStyle(ButtonStyle.Primary).setEmoji("🎖️"),
+      new ButtonBuilder().setCustomId("uno_inv_boosts").setLabel("Boosts").setStyle(ButtonStyle.Primary).setEmoji("🚀"),
+      new ButtonBuilder().setCustomId("uno_inv_collection").setLabel("Colección").setStyle(ButtonStyle.Primary).setEmoji("🧩")
+    )
+  ];
 }
 
 function lobbyComponents(game) {
   if (game.vsBot) return [];
   return [
     new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`uno_join_${game.id}`)
-        .setLabel("Unirme")
-        .setStyle(ButtonStyle.Success)
-        .setEmoji("✅"),
-      new ButtonBuilder()
-        .setCustomId(`uno_start_${game.id}`)
-        .setLabel("Empezar")
-        .setStyle(ButtonStyle.Primary)
-        .setEmoji("🚀"),
-      new ButtonBuilder()
-        .setCustomId(`uno_leave_${game.id}`)
-        .setLabel("Salir")
-        .setStyle(ButtonStyle.Secondary)
-        .setEmoji("❌")
+      new ButtonBuilder().setCustomId(`uno_join_${game.id}`).setLabel("Unirme").setStyle(ButtonStyle.Success).setEmoji("✅"),
+      new ButtonBuilder().setCustomId(`uno_start_${game.id}`).setLabel("Empezar").setStyle(ButtonStyle.Primary).setEmoji("🚀"),
+      new ButtonBuilder().setCustomId(`uno_leave_${game.id}`).setLabel("Salir").setStyle(ButtonStyle.Secondary).setEmoji("❌")
     )
   ];
 }
@@ -2065,26 +2040,10 @@ function lobbyComponents(game) {
 function gameComponents(game) {
   return [
     new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`uno_open_${game.id}`)
-        .setLabel("Mi mano")
-        .setStyle(ButtonStyle.Primary)
-        .setEmoji("🃏"),
-      new ButtonBuilder()
-        .setCustomId(`uno_refresh_${game.id}`)
-        .setLabel("Actualizar")
-        .setStyle(ButtonStyle.Secondary)
-        .setEmoji("🔄"),
-      new ButtonBuilder()
-        .setCustomId(`uno_topgame_${game.id}`)
-        .setLabel("Top")
-        .setStyle(ButtonStyle.Secondary)
-        .setEmoji("🏆"),
-      new ButtonBuilder()
-        .setCustomId(`uno_close_${game.id}`)
-        .setLabel("Cerrar sala")
-        .setStyle(ButtonStyle.Danger)
-        .setEmoji("🗑️")
+      new ButtonBuilder().setCustomId(`uno_open_${game.id}`).setLabel("Mi mano").setStyle(ButtonStyle.Primary).setEmoji("🃏"),
+      new ButtonBuilder().setCustomId(`uno_refresh_${game.id}`).setLabel("Actualizar").setStyle(ButtonStyle.Secondary).setEmoji("🔄"),
+      new ButtonBuilder().setCustomId(`uno_topgame_${game.id}`).setLabel("Top").setStyle(ButtonStyle.Secondary).setEmoji("🏆"),
+      new ButtonBuilder().setCustomId(`uno_close_${game.id}`).setLabel("Cerrar sala").setStyle(ButtonStyle.Danger).setEmoji("🗑️")
     )
   ];
 }
@@ -2114,35 +2073,15 @@ function panelComponents(game, userId) {
       new StringSelectMenuBuilder()
         .setCustomId(`uno_play_${game.id}`)
         .setPlaceholder(
-          hand.length
-            ? playable.length
-              ? "Elegí una carta"
-              : "No tenés jugables, podés robar"
-            : "No tenés cartas"
+          hand.length ? (playable.length ? "Elegí una carta" : "No tenés jugables, podés robar") : "No tenés cartas"
         )
         .setDisabled(!hand.length)
-        .addOptions(
-          options.length
-            ? options
-            : [{ label: "Sin cartas", description: "No hay cartas", value: "none" }]
-        )
+        .addOptions(options.length ? options : [{ label: "Sin cartas", description: "No hay cartas", value: "none" }])
     ),
     new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`uno_draw_${game.id}`)
-        .setLabel("Robar")
-        .setStyle(ButtonStyle.Secondary)
-        .setEmoji("➕"),
-      new ButtonBuilder()
-        .setCustomId(`uno_uno_${game.id}`)
-        .setLabel("UNO")
-        .setStyle(ButtonStyle.Success)
-        .setEmoji("📢"),
-      new ButtonBuilder()
-        .setCustomId(`uno_panelrefresh_${game.id}`)
-        .setLabel("Actualizar")
-        .setStyle(ButtonStyle.Primary)
-        .setEmoji("🔄")
+      new ButtonBuilder().setCustomId(`uno_draw_${game.id}`).setLabel("Robar").setStyle(ButtonStyle.Secondary).setEmoji("➕"),
+      new ButtonBuilder().setCustomId(`uno_uno_${game.id}`).setLabel("UNO").setStyle(ButtonStyle.Success).setEmoji("📢"),
+      new ButtonBuilder().setCustomId(`uno_panelrefresh_${game.id}`).setLabel("Actualizar").setStyle(ButtonStyle.Primary).setEmoji("🔄")
     )
   ];
 }
@@ -2150,46 +2089,22 @@ function panelComponents(game, userId) {
 function wildColorComponents(game, card) {
   return [
     new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`uno_color_${game.id}_${card.id}_red`)
-        .setLabel("Rojo")
-        .setStyle(ButtonStyle.Danger)
-        .setEmoji("🔴"),
-      new ButtonBuilder()
-        .setCustomId(`uno_color_${game.id}_${card.id}_blue`)
-        .setLabel("Azul")
-        .setStyle(ButtonStyle.Primary)
-        .setEmoji("🔵"),
-      new ButtonBuilder()
-        .setCustomId(`uno_color_${game.id}_${card.id}_green`)
-        .setLabel("Verde")
-        .setStyle(ButtonStyle.Success)
-        .setEmoji("🟢"),
-      new ButtonBuilder()
-        .setCustomId(`uno_color_${game.id}_${card.id}_yellow`)
-        .setLabel("Amarillo")
-        .setStyle(ButtonStyle.Secondary)
-        .setEmoji("🟡")
+      new ButtonBuilder().setCustomId(`uno_color_${game.id}_${card.id}_red`).setLabel("Rojo").setStyle(ButtonStyle.Danger).setEmoji("🔴"),
+      new ButtonBuilder().setCustomId(`uno_color_${game.id}_${card.id}_blue`).setLabel("Azul").setStyle(ButtonStyle.Primary).setEmoji("🔵"),
+      new ButtonBuilder().setCustomId(`uno_color_${game.id}_${card.id}_green`).setLabel("Verde").setStyle(ButtonStyle.Success).setEmoji("🟢"),
+      new ButtonBuilder().setCustomId(`uno_color_${game.id}_${card.id}_yellow`).setLabel("Amarillo").setStyle(ButtonStyle.Secondary).setEmoji("🟡")
     )
   ];
 }
 
 function rematchComponents(channelId, includeCloseRoom = false) {
   const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`uno_rematch_${channelId}`)
-      .setLabel("Revancha")
-      .setStyle(ButtonStyle.Primary)
-      .setEmoji("🔁")
+    new ButtonBuilder().setCustomId(`uno_rematch_${channelId}`).setLabel("Revancha").setStyle(ButtonStyle.Primary).setEmoji("🔁")
   );
 
   if (includeCloseRoom) {
     row.addComponents(
-      new ButtonBuilder()
-        .setCustomId(`uno_closeroom_${channelId}`)
-        .setLabel("Cerrar sala")
-        .setStyle(ButtonStyle.Danger)
-        .setEmoji("🗑️")
+      new ButtonBuilder().setCustomId(`uno_closeroom_${channelId}`).setLabel("Cerrar sala").setStyle(ButtonStyle.Danger).setEmoji("🗑️")
     );
   }
 
@@ -2278,7 +2193,7 @@ function scheduleBotTurn(channel, game) {
             game.saidUnoThisGame["UNO_BOT"] = true;
           }
 
-          game.lastAction = `UNO Bot jugó ${playedCard.label} · recuperación automática`;
+          game.lastAction = `${BOT_PROFILES[game.botProfileId]?.name || "Bot"} jugó ${playedCard.label} · recuperación automática`;
           await applyPlayedCard(channel, game, current, playedCard, selectedColor);
           return;
         }
@@ -2298,13 +2213,13 @@ function scheduleBotTurn(channel, game) {
               ? bestBotColor(game)
               : null;
 
-          game.lastAction = `UNO Bot robó y jugó ${playedCard.label} · recuperación automática`;
+          game.lastAction = `${BOT_PROFILES[game.botProfileId]?.name || "Bot"} robó y jugó ${playedCard.label} · recuperación automática`;
           await applyPlayedCard(channel, game, current, playedCard, selectedColor);
           return;
         }
       }
 
-      game.lastAction = "UNO Bot robó y pasó · recuperación automática";
+      game.lastAction = `${BOT_PROFILES[game.botProfileId]?.name || "Bot"} robó y pasó · recuperación automática`;
       await advanceTurn(channel, game, 1);
     } catch (err) {
       console.error("Error anti-freeze:", err);
@@ -2378,7 +2293,6 @@ async function finishGame(channel, game, winner) {
     const won = winner.id === p.id;
     const match = game.matchStats[p.id] || createMatchStatEntry();
 
-    // jugar partida
     for (const mission of playerStats.dailyMissions.missions) {
       if (mission.id === "play_games" && !mission.claimed) {
         mission.progress = Math.min(mission.target, mission.progress + 1);
@@ -2396,21 +2310,22 @@ async function finishGame(channel, game, winner) {
       playerStats.winStreak += 1;
       playerStats.bestWinStreak = Math.max(playerStats.bestWinStreak || 0, playerStats.winStreak);
 
-      if (game.turnNumber <= 12) playerStats.fastWins += 1;
-
-      if (game.vsBot) {
-        playerStats.vsBotWins += 1;
-      } else {
-        playerStats.pvpWins += 1;
-      }
+      if (game.vsBot) playerStats.vsBotWins += 1;
+      else playerStats.pvpWins += 1;
 
       let baseXp;
       let baseCoins;
 
       if (game.vsBot) {
-        baseXp = BOT_DIFFICULTIES[game.botDifficulty].rewardXpWin;
-        baseCoins = BOT_DIFFICULTIES[game.botDifficulty].rewardCoinsWin;
+        const bot = BOT_PROFILES[game.botProfileId] || BOT_PROFILES.machabot;
+        baseXp = bot.rewardXpWin;
+        baseCoins = bot.rewardCoinsWin;
         playerStats.elo += 12;
+
+        if (!playerStats.botsDefeated.includes(bot.name)) {
+          playerStats.botsDefeated.push(bot.name);
+        }
+        addToCollection(playerStats, "bots", bot.name);
       } else {
         baseXp = 35;
         baseCoins = 25;
@@ -2420,6 +2335,8 @@ async function finishGame(channel, game, winner) {
       const boosted = applyBoostsToRewards(playerStats, baseXp, baseCoins);
       addRewards(playerStats, boosted.xp, boosted.coins);
       consumeBoostUses(playerStats);
+
+      if (game.turnNumber <= 12) playerStats.fastWins += 1;
 
       for (const mission of playerStats.dailyMissions.missions) {
         if (mission.claimed) continue;
@@ -2456,8 +2373,9 @@ async function finishGame(channel, game, winner) {
       let baseCoins;
 
       if (game.vsBot) {
-        baseXp = BOT_DIFFICULTIES[game.botDifficulty].rewardXpLose;
-        baseCoins = BOT_DIFFICULTIES[game.botDifficulty].rewardCoinsLose;
+        const bot = BOT_PROFILES[game.botProfileId] || BOT_PROFILES.machabot;
+        baseXp = bot.rewardXpLose;
+        baseCoins = bot.rewardCoinsLose;
         playerStats.elo = Math.max(800, playerStats.elo - 5);
       } else {
         baseXp = 15;
@@ -2479,7 +2397,7 @@ async function finishGame(channel, game, winner) {
     winner: winner.username,
     players: game.players.map((p) => p.username),
     mode: game.vsBot ? "Vs Bot" : game.players.length === 2 ? "PvP" : "Multijugador",
-    difficulty: game.vsBot ? BOT_DIFFICULTIES[game.botDifficulty].name : null,
+    bot: game.vsBot ? BOT_PROFILES[game.botProfileId]?.name || "BOT" : null,
     turns: game.turnNumber,
     createdAt: new Date().toISOString()
   });
@@ -2500,7 +2418,7 @@ async function finishGame(channel, game, winner) {
       {
         name: "Resumen",
         value: `Modo: ${game.vsBot ? "Vs Bot" : "PvP"}${
-          game.vsBot ? `\nDificultad: ${BOT_DIFFICULTIES[game.botDifficulty].name}` : ""
+          game.vsBot ? `\nBot: ${BOT_PROFILES[game.botProfileId]?.name || "BOT"}` : ""
         }\nTurnos: ${game.turnNumber}`
       },
       {
@@ -2617,36 +2535,7 @@ function bestBotColor(game) {
   return Object.entries(count).sort((a, b) => b[1] - a[1])[0]?.[0] || "red";
 }
 
-function chooseBotCardEasy(game) {
-  const hand = sortHand(game.hands["UNO_BOT"] || []);
-  const playable = hand.filter((card) => canPlay(card, game));
-  if (!playable.length) return null;
-
-  const numbers = playable.filter((c) => c.type === "number");
-  if (numbers.length) return numbers[Math.floor(Math.random() * numbers.length)];
-
-  return playable[Math.floor(Math.random() * playable.length)];
-}
-
-function chooseBotCardNormal(game) {
-  const hand = sortHand(game.hands["UNO_BOT"] || []);
-  const playable = hand.filter((card) => canPlay(card, game));
-  if (!playable.length) return null;
-
-  const priority = {
-    wild4: 6,
-    draw2: 5,
-    skip: 4,
-    reverse: 3,
-    wild: 2,
-    number: 1
-  };
-
-  playable.sort((a, b) => (priority[b.type] || 0) - (priority[a.type] || 0));
-  return playable[0];
-}
-
-function chooseBotCardHard(game) {
+function chooseStrategistBotCard(game) {
   const hand = sortHand(game.hands["UNO_BOT"] || []);
   const playable = hand.filter((card) => canPlay(card, game));
   if (!playable.length) return null;
@@ -2654,41 +2543,9 @@ function chooseBotCardHard(game) {
   const next = getNextPlayer(game);
   const nextCards = game.hands[next.id]?.length || 99;
 
-  if (hand.length <= 2) return playable[0];
-
   if (nextCards <= 2) {
-    const attacks = playable.filter((c) => ["draw2", "wild4", "skip"].includes(c.type));
+    const attacks = playable.filter((c) => ["wild4", "draw2", "skip"].includes(c.type));
     if (attacks.length) return attacks[0];
-  }
-
-  const nonWild = playable.filter((c) => c.type !== "wild" && c.type !== "wild4");
-  if (nonWild.length) {
-    const colors = countColorsInHand(hand);
-    nonWild.sort((a, b) => (colors[b.color] || 0) - (colors[a.color] || 0));
-    return nonWild[0];
-  }
-
-  return playable[0];
-}
-
-function chooseBotCardInsane(game) {
-  const hand = sortHand(game.hands["UNO_BOT"] || []);
-  const playable = hand.filter((card) => canPlay(card, game));
-  if (!playable.length) return null;
-
-  const next = getNextPlayer(game);
-  const nextCards = game.hands[next.id]?.length || 99;
-
-  if (hand.length <= 2) {
-    const finisher = playable.find((c) =>
-      ["number", "skip", "draw2", "wild4", "wild"].includes(c.type)
-    );
-    if (finisher) return finisher;
-  }
-
-  if (nextCards <= 2) {
-    const punish = playable.find((c) => ["wild4", "draw2", "skip"].includes(c.type));
-    if (punish) return punish;
   }
 
   const topColor = getCurrentColor(game);
@@ -2699,20 +2556,32 @@ function chooseBotCardInsane(game) {
   }
 
   const useful = playable.filter((c) => !["wild", "wild4"].includes(c.type));
-  if (useful.length) {
-    useful.sort((a, b) => cardSortValue(b) - cardSortValue(a));
-    return useful[0];
+  if (useful.length) return useful[0];
+
+  return playable[0];
+}
+
+function chooseAggressiveBotCard(game) {
+  const hand = sortHand(game.hands["UNO_BOT"] || []);
+  const playable = hand.filter((card) => canPlay(card, game));
+  if (!playable.length) return null;
+
+  const attacks = playable.filter((c) => ["wild4", "draw2", "skip", "reverse"].includes(c.type));
+  if (attacks.length) {
+    attacks.sort((a, b) => cardSortValue(b) - cardSortValue(a));
+    return attacks[0];
   }
+
+  const wilds = playable.filter((c) => ["wild", "wild4"].includes(c.type));
+  if (wilds.length) return wilds[0];
 
   return playable[0];
 }
 
 function chooseBotCard(game) {
-  const diff = game.botDifficulty || "easy";
-  if (diff === "easy") return chooseBotCardEasy(game);
-  if (diff === "normal") return chooseBotCardNormal(game);
-  if (diff === "hard") return chooseBotCardHard(game);
-  return chooseBotCardInsane(game);
+  const bot = BOT_PROFILES[game.botProfileId] || BOT_PROFILES.machabot;
+  if (bot.style === "aggressive") return chooseAggressiveBotCard(game);
+  return chooseStrategistBotCard(game);
 }
 
 async function botPlay(channel, game) {
@@ -2721,6 +2590,7 @@ async function botPlay(channel, game) {
   const current = getCurrentPlayer(game);
   if (!current || !current.isBot) return;
 
+  const botName = BOT_PROFILES[game.botProfileId]?.name || "Bot";
   const card = chooseBotCard(game);
 
   if (!card) {
@@ -2738,12 +2608,12 @@ async function botPlay(channel, game) {
           ? bestBotColor(game)
           : null;
 
-      game.lastAction = `UNO Bot robó y jugó ${playedCard.label}`;
+      game.lastAction = `${botName} robó y jugó ${playedCard.label}`;
       await applyPlayedCard(channel, game, current, playedCard, color);
       return;
     }
 
-    game.lastAction = "UNO Bot robó y pasó";
+    game.lastAction = `${botName} robó y pasó`;
     await advanceTurn(channel, game, 1);
     return;
   }
@@ -2801,8 +2671,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (interaction.commandName === "tienda") {
         await interaction.reply({
           embeds: [shopMainEmbed(interaction.user)],
-          components: shopMainComponents(),
-          ephemeral: true
+          components: shopMainComponents()
+        });
+        return;
+      }
+
+      if (interaction.commandName === "inventario") {
+        await interaction.reply({
+          embeds: [inventoryMainEmbed(interaction.user)],
+          components: inventoryMainComponents()
         });
         return;
       }
@@ -2858,12 +2735,55 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const totalPages = Math.max(1, Math.ceil(ACHIEVEMENTS.length / ACHIEVEMENTS_PER_PAGE));
       newPage = Math.max(0, Math.min(newPage, totalPages - 1));
 
-      const targetUser =
-        interaction.client.users.cache.get(targetUserId) || interaction.user;
+      const targetUser = interaction.client.users.cache.get(targetUserId) || interaction.user;
 
       await interaction.update({
         embeds: [achievementsEmbed(targetUser, newPage)],
         components: achievementsComponents(targetUserId, newPage)
+      });
+      return;
+    }
+
+    /* =========================
+       INVENTARIO
+    ========================= */
+
+    if (customId === "uno_menu_inventory") {
+      await interaction.reply({
+        embeds: [inventoryMainEmbed(interaction.user)],
+        components: inventoryMainComponents()
+      });
+      return;
+    }
+
+    if (customId === "uno_inv_titles") {
+      await interaction.update({
+        embeds: [inventoryTitlesEmbed(interaction.user)],
+        components: inventoryMainComponents()
+      });
+      return;
+    }
+
+    if (customId === "uno_inv_badges") {
+      await interaction.update({
+        embeds: [inventoryBadgesEmbed(interaction.user)],
+        components: inventoryMainComponents()
+      });
+      return;
+    }
+
+    if (customId === "uno_inv_boosts") {
+      await interaction.update({
+        embeds: [inventoryBoostsEmbed(interaction.user)],
+        components: inventoryMainComponents()
+      });
+      return;
+    }
+
+    if (customId === "uno_inv_collection") {
+      await interaction.update({
+        embeds: [collectionEmbed(interaction.user)],
+        components: inventoryMainComponents()
       });
       return;
     }
@@ -2875,8 +2795,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (customId === "uno_menu_shop") {
       await interaction.reply({
         embeds: [shopMainEmbed(interaction.user)],
-        components: shopMainComponents(),
-        ephemeral: true
+        components: shopMainComponents()
       });
       return;
     }
@@ -2971,10 +2890,61 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
     if (customId === "uno_menu_bot") {
       await interaction.reply({
-        embeds: [difficultySelectEmbed(interaction.user)],
-        components: difficultyComponents(interaction.user),
+        embeds: [botSelectEmbed(interaction.user)],
+        components: botSelectComponents(interaction.user),
         ephemeral: true
       });
+      return;
+    }
+
+    if (customId.startsWith("uno_selectbot_")) {
+      const botId = customId.replace("uno_selectbot_", "");
+      const stats = getPlayerStats(interaction.user.id, interaction.user.username);
+      const unlocked = getUnlockedBots(stats);
+
+      if (!unlocked.includes(botId)) {
+        await interaction.reply({
+          content: `⚠️ No tenés desbloqueado ese bot.`,
+          ephemeral: true
+        });
+        return;
+      }
+
+      if (!interaction.guild) {
+        await interaction.reply({
+          content: "⚠️ Esto solo funciona dentro de un servidor.",
+          ephemeral: true
+        });
+        return;
+      }
+
+      if (playerGames.has(interaction.user.id)) {
+        await interaction.reply({
+          content: "⚠️ Ya estás en una partida o lobby.",
+          ephemeral: true
+        });
+        return;
+      }
+
+      const bot = BOT_PROFILES[botId];
+      const tempChannel = await createTempUnoChannel(interaction.guild, interaction.user, bot.name);
+      const game = createBaseGame(tempChannel, interaction.user, true, botId);
+
+      setGameReferences(game);
+      startGame(game);
+
+      await interaction.reply({
+        content: `🤖 Te creé una sala privada para jugar contra **${bot.name}**: ${tempChannel}`,
+        ephemeral: true
+      });
+
+      await tempChannel.send(`🎮 ${interaction.user}, tu partida contra **${bot.name}** empezó acá.`);
+      await sendOrUpdateGameMessage(tempChannel, game);
+
+      if (getCurrentPlayer(game)?.isBot) {
+        scheduleBotTurn(tempChannel, game);
+      }
+
       return;
     }
 
@@ -3021,60 +2991,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
     if (customId === "uno_menu_missions") {
       await interaction.reply({ embeds: [missionsEmbed(interaction.user)] });
-      return;
-    }
-
-    /* =========================
-       DIFICULTAD BOT
-    ========================= */
-
-    if (customId.startsWith("uno_botdiff_")) {
-      const diffId = customId.replace("uno_botdiff_", "");
-      const stats = getPlayerStats(interaction.user.id, interaction.user.username);
-      const unlocked = getUnlockedDifficulties(stats);
-
-      if (!unlocked.includes(diffId)) {
-        await interaction.reply({
-          content: `⚠️ No tenés desbloqueada la dificultad ${BOT_DIFFICULTIES[diffId]?.name || diffId}.`,
-          ephemeral: true
-        });
-        return;
-      }
-
-      if (!interaction.guild) {
-        await interaction.reply({
-          content: "⚠️ Esto solo funciona dentro de un servidor.",
-          ephemeral: true
-        });
-        return;
-      }
-
-      if (playerGames.has(interaction.user.id)) {
-        await interaction.reply({
-          content: "⚠️ Ya estás en una partida o lobby.",
-          ephemeral: true
-        });
-        return;
-      }
-
-      const tempChannel = await createTempUnoChannel(interaction.guild, interaction.user);
-      const game = createBaseGame(tempChannel, interaction.user, true, diffId);
-
-      setGameReferences(game);
-      startGame(game);
-
-      await interaction.reply({
-        content: `🤖 Te creé una sala privada para jugar en **${BOT_DIFFICULTIES[diffId].name}**: ${tempChannel}`,
-        ephemeral: true
-      });
-
-      await tempChannel.send(`🎮 ${interaction.user}, tu partida de UNO vs Bot empezó acá.`);
-      await sendOrUpdateGameMessage(tempChannel, game);
-
-      if (getCurrentPlayer(game)?.isBot) {
-        scheduleBotTurn(tempChannel, game);
-      }
-
       return;
     }
 
@@ -3423,12 +3339,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         await interaction.reply({ content: "📢 Dijiste UNO.", ephemeral: true });
 
-        const rewards = updateMissionProgress(
-          interaction.user.id,
-          interaction.user.username,
-          "say_uno",
-          1
-        );
+        const rewards = updateMissionProgress(interaction.user.id, interaction.user.username, "say_uno", 1);
         await sendMissionRewards(interaction.channel, rewards);
       } else {
         await interaction.reply({
