@@ -2040,10 +2040,49 @@ function lobbyComponents(game) {
 function gameComponents(game) {
   return [
     new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`uno_open_${game.id}`).setLabel("Mi mano").setStyle(ButtonStyle.Primary).setEmoji("🃏"),
-      new ButtonBuilder().setCustomId(`uno_refresh_${game.id}`).setLabel("Actualizar").setStyle(ButtonStyle.Secondary).setEmoji("🔄"),
-      new ButtonBuilder().setCustomId(`uno_topgame_${game.id}`).setLabel("Top").setStyle(ButtonStyle.Secondary).setEmoji("🏆"),
-      new ButtonBuilder().setCustomId(`uno_close_${game.id}`).setLabel("Cerrar sala").setStyle(ButtonStyle.Danger).setEmoji("🗑️")
+      new ButtonBuilder()
+        .setCustomId(`uno_open_${game.id}`)
+        .setLabel("Mi mano")
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji("🃏"),
+      new ButtonBuilder()
+        .setCustomId(`uno_refresh_${game.id}`)
+        .setLabel("Actualizar")
+        .setStyle(ButtonStyle.Secondary)
+        .setEmoji("🔄"),
+      new ButtonBuilder()
+        .setCustomId(`uno_topgame_${game.id}`)
+        .setLabel("Top")
+        .setStyle(ButtonStyle.Secondary)
+        .setEmoji("🏆"),
+      new ButtonBuilder()
+        .setCustomId(`uno_close_${game.id}`)
+        .setLabel("Cerrar sala")
+        .setStyle(ButtonStyle.Danger)
+        .setEmoji("🗑️")
+    ),
+
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`uno_chat_${game.id}_gg`)
+        .setLabel("GG")
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId(`uno_chat_${game.id}_nooo`)
+        .setLabel("NOOO")
+        .setStyle(ButtonStyle.Danger),
+      new ButtonBuilder()
+        .setCustomId(`uno_chat_${game.id}_ez`)
+        .setLabel("EZ")
+        .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId(`uno_chat_${game.id}_wow`)
+        .setLabel("WOW")
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId(`uno_chat_${game.id}_lucky`)
+        .setLabel("SUERTE")
+        .setStyle(ButtonStyle.Secondary)
     )
   ];
 }
@@ -2580,8 +2619,26 @@ function chooseAggressiveBotCard(game) {
 
 function chooseBotCard(game) {
   const bot = BOT_PROFILES[game.botProfileId] || BOT_PROFILES.machabot;
-  if (bot.style === "aggressive") return chooseAggressiveBotCard(game);
-  return chooseStrategistBotCard(game);
+
+  switch (bot.style) {
+    case "aggressive":
+      return chooseAggressiveBotCard(game);
+
+    case "strategist":
+      return chooseStrategistBotCard(game);
+
+    case "smart":
+      return chooseSmartBot(game);
+
+    case "troll":
+      return chooseTrollBot(game);
+
+    case "god":
+      return chooseGodBot(game);
+
+    default:
+      return chooseStrategistBotCard(game);
+  }
 }
 
 async function botPlay(channel, game) {
@@ -2716,8 +2773,49 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
     if (!interaction.isButton() && !interaction.isStringSelectMenu()) return;
 
-    const customId = interaction.customId;
+const customId = interaction.customId;
 
+/* =========================
+   💬 CHAT INTERACCIONES
+========================= */
+
+if (customId.startsWith("uno_chat_")) {
+  const parts = customId.split("_");
+  const gameId = `${parts[2]}_${parts[3]}`;
+  const msg = parts[4];
+
+  const game = getGameById(gameId);
+  if (!game) {
+    await interaction.reply({
+      content: "⚠️ Esa partida ya no existe.",
+      ephemeral: true
+    });
+    return;
+  }
+
+  const player = game.players.find((p) => p.id === interaction.user.id);
+  if (!player) {
+    await interaction.reply({
+      content: "⚠️ No pertenecés a esta partida.",
+      ephemeral: true
+    });
+    return;
+  }
+
+  const messages = {
+    gg: "😎 GG",
+    nooo: "😡 NOOOO",
+    ez: "🔥 EZ",
+    wow: "😳 WOW",
+    lucky: "🍀 SUERTE..."
+  };
+
+  await interaction.reply({
+    content: `💬 **${interaction.user.username}**: ${messages[msg] || msg}`
+  });
+
+  return;
+}
     /* =========================
        PAGINAS LOGROS
     ========================= */
@@ -3208,40 +3306,112 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return;
     }
 
-    if (action === "start") {
-      if (game.started) {
-        await interaction.reply({ content: "⚠️ La partida ya comenzó.", ephemeral: true });
-        return;
-      }
+if (action === "start") {
+  if (game.started) {
+    await interaction.reply({
+      content: "⚠️ La partida ya comenzó.",
+      ephemeral: true
+    });
+    return;
+  }
 
-      if (game.ownerId !== interaction.user.id) {
-        await interaction.reply({
-          content: "⚠️ Solo el creador puede empezar.",
-          ephemeral: true
-        });
-        return;
-      }
+  if (game.ownerId !== interaction.user.id) {
+    await interaction.reply({
+      content: "⚠️ Solo el creador puede empezar.",
+      ephemeral: true
+    });
+    return;
+  }
 
-      if (game.players.length < 2) {
-        await interaction.reply({
-          content: "⚠️ Necesitás al menos 2 jugadores.",
-          ephemeral: true
-        });
-        return;
-      }
+  if (game.players.length < 2) {
+    await interaction.reply({
+      content: "⚠️ Necesitás al menos 2 jugadores.",
+      ephemeral: true
+    });
+    return;
+  }
 
-      startGame(game);
-      refreshPlayerReferences(game);
+  /* =========================================================
+     🔥 CREAR CANAL TEMPORAL PARA PVP
+  ========================================================= */
 
-      await interaction.reply({ content: "🚀 La partida comenzó.", ephemeral: true });
-      await sendOrUpdateGameMessage(interaction.channel, game);
+  let newChannel = interaction.channel;
 
-      if (getCurrentPlayer(game)?.isBot) {
-        scheduleBotTurn(interaction.channel, game);
-      }
+  try {
+    if (!game.vsBot && interaction.guild) {
+      const category = await getOrCreateTempCategory(interaction.guild);
 
-      return;
+      const channelName = `uno-${game.players
+        .map(p => p.username)
+        .join("-")
+        .toLowerCase()
+        .replace(/[^a-z0-9-]/g, "")
+        .slice(0, 25)}`;
+
+      newChannel = await interaction.guild.channels.create({
+        name: channelName,
+        type: ChannelType.GuildText,
+        parent: category.id,
+        permissionOverwrites: [
+          {
+            id: interaction.guild.roles.everyone.id,
+            deny: [PermissionsBitField.Flags.ViewChannel]
+          },
+          ...game.players.map(p => ({
+            id: p.id,
+            allow: [
+              PermissionsBitField.Flags.ViewChannel,
+              PermissionsBitField.Flags.SendMessages,
+              PermissionsBitField.Flags.ReadMessageHistory
+            ]
+          })),
+          {
+            id: interaction.guild.members.me.id,
+            allow: [
+              PermissionsBitField.Flags.ViewChannel,
+              PermissionsBitField.Flags.SendMessages,
+              PermissionsBitField.Flags.ReadMessageHistory,
+              PermissionsBitField.Flags.ManageChannels
+            ]
+          }
+        ]
+      });
+
+      game.channelId = newChannel.id;
+      game.tempChannel = true;
     }
+  } catch (err) {
+    console.error("Error creando canal PvP:", err);
+  }
+
+  /* =========================================================
+     🚀 INICIAR PARTIDA
+  ========================================================= */
+
+  startGame(game);
+  refreshPlayerReferences(game);
+
+  await interaction.reply({
+    content: `🚀 Partida iniciada en ${newChannel}`,
+    ephemeral: true
+  });
+
+  await newChannel.send({
+    content: `🎮 Partida iniciada entre:\n${game.players.map(p => `• ${p.username}`).join("\n")}`
+  });
+
+  await sendOrUpdateGameMessage(newChannel, game);
+
+  /* =========================================================
+     🤖 TURNO BOT (por si acaso)
+  ========================================================= */
+
+  if (getCurrentPlayer(game)?.isBot) {
+    scheduleBotTurn(newChannel, game);
+  }
+
+  return;
+}
 
     if (action === "refresh") {
       await sendOrUpdateGameMessage(interaction.channel, game);
