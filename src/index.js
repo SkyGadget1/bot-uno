@@ -36,11 +36,14 @@ const games = new Map(); // gameId -> game
 const channelGames = new Map(); // channelId -> gameId
 const playerGames = new Map(); // userId -> gameId
 const botTurnTimers = new Map(); // gameId -> { playTimer, failSafeTimer }
+const rematchOffers = new Map(); // channelId -> offer
+const roomDeleteTimers = new Map(); // channelId -> timeout
 
 let CARD_SEQ = 1;
 
 const TEMP_CATEGORY_NAME = "UNO TEMP";
 const TEMP_DELETE_DELAY_MS = 15000;
+const REMATCH_ROOM_TIMEOUT_MS = 60000;
 const BOT_PLAY_DELAY_MS = 1200;
 const BOT_FAILSAFE_MS = 5000;
 
@@ -65,6 +68,51 @@ const EMBED = {
   gray: 0x95a5a6
 };
 
+const BOT_DIFFICULTIES = {
+  easy: {
+    id: "easy",
+    name: "Fácil",
+    desc: "Ideal para empezar",
+    unlockVsBotWins: 0,
+    rewardCoinsWin: 20,
+    rewardXpWin: 25,
+    rewardCoinsLose: 8,
+    rewardXpLose: 12
+  },
+  normal: {
+    id: "normal",
+    name: "Normal",
+    desc: "Más equilibrado",
+    unlockVsBotWins: 3,
+    rewardCoinsWin: 30,
+    rewardXpWin: 40,
+    rewardCoinsLose: 12,
+    rewardXpLose: 18
+  },
+  hard: {
+    id: "hard",
+    name: "Difícil",
+    desc: "Juega mejor y castiga más",
+    unlockVsBotWins: 8,
+    rewardCoinsWin: 45,
+    rewardXpWin: 60,
+    rewardCoinsLose: 18,
+    rewardXpLose: 25
+  },
+  insane: {
+    id: "insane",
+    name: "Extremo",
+    desc: "La dificultad más dura",
+    unlockVsBotWins: 15,
+    rewardCoinsWin: 70,
+    rewardXpWin: 90,
+    rewardCoinsLose: 25,
+    rewardXpLose: 35
+  }
+};
+
+const BOT_DIFFICULTY_ORDER = ["easy", "normal", "hard", "insane"];
+
 const ACHIEVEMENTS = [
   {
     id: "first_win",
@@ -79,15 +127,21 @@ const ACHIEVEMENTS = [
     chance: "Alta · 60%"
   },
   {
+    id: "bot_slayer",
+    name: "Destructor de IA",
+    description: "Ganale 10 veces al bot.",
+    chance: "Media · 35%"
+  },
+  {
     id: "pvp_fighter",
     name: "Competitivo",
-    description: "Ganale 5 partidas a otros jugadores.",
+    description: "Ganá 5 partidas PvP.",
     chance: "Media · 45%"
   },
   {
     id: "quick_win",
     name: "Victoria rápida",
-    description: "Ganate una partida en 12 turnos o menos.",
+    description: "Ganá una partida en 12 turnos o menos.",
     chance: "Media · 35%"
   },
   {
@@ -103,6 +157,12 @@ const ACHIEVEMENTS = [
     chance: "Baja · 20%"
   },
   {
+    id: "streak_5",
+    name: "Imparable",
+    description: "Ganá 5 partidas seguidas.",
+    chance: "Baja · 12%"
+  },
+  {
     id: "wild4_finisher",
     name: "Final salvaje",
     description: "Ganá usando un +4 como última carta.",
@@ -113,6 +173,36 @@ const ACHIEVEMENTS = [
     name: "Veterano",
     description: "Jugá 20 partidas.",
     chance: "Alta · 55%"
+  },
+  {
+    id: "veteran_50",
+    name: "Ultra veterano",
+    description: "Jugá 50 partidas.",
+    chance: "Media · 25%"
+  },
+  {
+    id: "comeback_10",
+    name: "Remontada épica",
+    description: "Ganá una partida después de haber tenido 10 o más cartas.",
+    chance: "Baja · 15%"
+  },
+  {
+    id: "normal_unlock",
+    name: "Subiendo el nivel",
+    description: "Desbloqueá la dificultad Normal.",
+    chance: "Alta · 55%"
+  },
+  {
+    id: "hard_unlock",
+    name: "Sin miedo",
+    description: "Desbloqueá la dificultad Difícil.",
+    chance: "Media · 30%"
+  },
+  {
+    id: "insane_unlock",
+    name: "Tocando el infierno",
+    description: "Desbloqueá la dificultad Extremo.",
+    chance: "Baja · 10%"
   }
 ];
 
@@ -124,7 +214,12 @@ const slashCommands = [
   new SlashCommandBuilder().setName("uno").setDescription("Abrir el menú principal de UNO"),
   new SlashCommandBuilder().setName("reglas").setDescription("Mostrar reglas simples de UNO"),
   new SlashCommandBuilder().setName("top").setDescription("Ver ranking de jugadores"),
-  new SlashCommandBuilder().setName("perfil").setDescription("Ver tu perfil de UNO"),
+  new SlashCommandBuilder()
+    .setName("perfil")
+    .setDescription("Ver perfil de UNO")
+    .addUserOption((o) =>
+      o.setName("usuario").setDescription("Jugador a consultar").setRequired(false)
+    ),
   new SlashCommandBuilder().setName("historial").setDescription("Ver últimas partidas"),
   new SlashCommandBuilder().setName("logros").setDescription("Ver tus logros y los que te faltan")
 ].map((c) => c.toJSON());
@@ -190,12 +285,28 @@ function saveHistory(history) {
 function addMatchToHistory(entry) {
   const history = loadHistory();
   history.unshift(entry);
-  saveHistory(history.slice(0, 30));
+  saveHistory(history.slice(0, 50));
 }
 
 /* =========================================================
-   STATS Y LOGROS
+   STATS, XP, LEVEL, LOGROS
 ========================================================= */
+
+function xpRequiredForLevel(level) {
+  return level * 100;
+}
+
+function computeLevelFromXp(xp) {
+  let level = 1;
+  let remainingXp = xp;
+
+  while (remainingXp >= xpRequiredForLevel(level)) {
+    remainingXp -= xpRequiredForLevel(level);
+    level += 1;
+  }
+
+  return { level, currentXp: remainingXp, nextLevelXp: xpRequiredForLevel(level) };
+}
 
 function createDefaultPlayer(username = "Jugador") {
   return {
@@ -207,7 +318,15 @@ function createDefaultPlayer(username = "Jugador") {
     vsBotWins: 0,
     pvpWins: 0,
     winStreak: 0,
-    achievements: []
+    bestWinStreak: 0,
+    achievements: [],
+    xp: 0,
+    coins: 0,
+    cardsPlayed: 0,
+    unoCalls: 0,
+    unoFails: 0,
+    fastWins: 0,
+    highestHandRecovered: 7
   };
 }
 
@@ -221,7 +340,6 @@ function getPlayerStats(userId, username = "Jugador") {
   }
 
   const defaults = createDefaultPlayer(username);
-
   stats[userId] = {
     ...defaults,
     ...stats[userId],
@@ -230,6 +348,13 @@ function getPlayerStats(userId, username = "Jugador") {
 
   saveStats(stats);
   return stats[userId];
+}
+
+function addRewards(player, xp, coins) {
+  player.xp += xp;
+  player.coins += coins;
+  const lvl = computeLevelFromXp(player.xp);
+  player.level = lvl.level;
 }
 
 function topPlayers(limit = 10) {
@@ -241,7 +366,9 @@ function topPlayers(limit = 10) {
         ...createDefaultPlayer(data?.username || "Jugador"),
         ...data
       };
-      return { userId, ...safe };
+      const lvl = computeLevelFromXp(safe.xp || 0);
+
+      return { userId, ...safe, level: lvl.level };
     })
     .sort((a, b) => (b.elo || 0) - (a.elo || 0) || (b.wins || 0) - (a.wins || 0))
     .slice(0, limit);
@@ -263,6 +390,18 @@ function unlockAchievement(stats, userId, achievementId) {
   return false;
 }
 
+function getUnlockedDifficulties(player) {
+  const vsBotWins = player?.vsBotWins || 0;
+  return BOT_DIFFICULTY_ORDER.filter(
+    (id) => vsBotWins >= BOT_DIFFICULTIES[id].unlockVsBotWins
+  );
+}
+
+function getHighestUnlockedDifficulty(player) {
+  const unlocked = getUnlockedDifficulties(player);
+  return unlocked[unlocked.length - 1] || "easy";
+}
+
 function evaluateAchievements(stats, userId, context = {}) {
   const player = stats[userId];
   if (!player) return [];
@@ -275,14 +414,23 @@ function evaluateAchievements(stats, userId, context = {}) {
     }
   };
 
+  const highestUnlocked = getHighestUnlockedDifficulty(player);
+
   tryUnlock("first_win", player.wins >= 1);
   tryUnlock("bot_hunter", player.vsBotWins >= 3);
+  tryUnlock("bot_slayer", player.vsBotWins >= 10);
   tryUnlock("pvp_fighter", player.pvpWins >= 5);
   tryUnlock("streak_3", player.winStreak >= 3);
+  tryUnlock("streak_5", player.winStreak >= 5);
   tryUnlock("veteran_20", player.gamesPlayed >= 20);
+  tryUnlock("veteran_50", player.gamesPlayed >= 50);
   tryUnlock("quick_win", context.quickWin === true);
   tryUnlock("uno_master", context.usedUnoAndWon === true);
   tryUnlock("wild4_finisher", context.wonWithWild4 === true);
+  tryUnlock("comeback_10", context.maxHandRecovered >= 10);
+  tryUnlock("normal_unlock", highestUnlocked === "normal" || highestUnlocked === "hard" || highestUnlocked === "insane");
+  tryUnlock("hard_unlock", highestUnlocked === "hard" || highestUnlocked === "insane");
+  tryUnlock("insane_unlock", highestUnlocked === "insane");
 
   return unlockedNow;
 }
@@ -317,34 +465,32 @@ function setGameReferences(game) {
   channelGames.set(game.channelId, game.id);
 
   for (const p of game.players) {
-    if (!p.isBot) {
-      playerGames.set(p.id, game.id);
-    }
+    if (!p.isBot) playerGames.set(p.id, game.id);
   }
 }
 
 function refreshPlayerReferences(game) {
   for (const [userId, gameId] of playerGames.entries()) {
-    if (gameId === game.id) {
-      playerGames.delete(userId);
-    }
+    if (gameId === game.id) playerGames.delete(userId);
   }
 
   for (const p of game.players) {
-    if (!p.isBot) {
-      playerGames.set(p.id, game.id);
-    }
+    if (!p.isBot) playerGames.set(p.id, game.id);
   }
 }
 
 function clearBotTurnTimers(gameId) {
   const timers = botTurnTimers.get(gameId);
   if (!timers) return;
-
   if (timers.playTimer) clearTimeout(timers.playTimer);
   if (timers.failSafeTimer) clearTimeout(timers.failSafeTimer);
-
   botTurnTimers.delete(gameId);
+}
+
+function clearRoomDeleteTimer(channelId) {
+  const timer = roomDeleteTimers.get(channelId);
+  if (timer) clearTimeout(timer);
+  roomDeleteTimers.delete(channelId);
 }
 
 function removeGameReferences(game) {
@@ -353,10 +499,45 @@ function removeGameReferences(game) {
   channelGames.delete(game.channelId);
 
   for (const p of game.players) {
-    if (!p.isBot) {
-      playerGames.delete(p.id);
+    if (!p.isBot) playerGames.delete(p.id);
+  }
+}
+
+function humanPlayers(game) {
+  return game.players.filter((p) => !p.isBot);
+}
+
+function winRate(player) {
+  const gp = player.gamesPlayed || 0;
+  if (!gp) return 0;
+  return Math.round(((player.wins || 0) / gp) * 100);
+}
+
+function difficultyText(player) {
+  const unlocked = getUnlockedDifficulties(player);
+  return unlocked.map((id) => BOT_DIFFICULTIES[id].name).join(", ");
+}
+
+function nextDifficultyGoal(player) {
+  const vsBotWins = player?.vsBotWins || 0;
+
+  for (const id of BOT_DIFFICULTY_ORDER) {
+    const needed = BOT_DIFFICULTIES[id].unlockVsBotWins;
+    if (vsBotWins < needed) {
+      return `${BOT_DIFFICULTIES[id].name}: ${vsBotWins}/${needed} victorias vs bot`;
     }
   }
+
+  return "Todas las dificultades desbloqueadas";
+}
+
+function createMatchStatEntry() {
+  return {
+    cardsPlayed: 0,
+    unoCalls: 0,
+    unoFails: 0,
+    maxHand: 7
+  };
 }
 
 /* =========================================================
@@ -481,6 +662,13 @@ function drawCards(game, playerId, amount) {
     if (game.deck.length === 0) refillDeck(game);
     if (game.deck.length === 0) return;
     game.hands[playerId].push(game.deck.pop());
+
+    if (game.matchStats[playerId]) {
+      game.matchStats[playerId].maxHand = Math.max(
+        game.matchStats[playerId].maxHand,
+        game.hands[playerId].length
+      );
+    }
   }
 }
 
@@ -540,7 +728,7 @@ function sortHand(hand) {
   return [...hand].sort((a, b) => {
     if (a.color !== b.color) return a.color.localeCompare(b.color);
     if (a.type !== b.type) return cardSortValue(a) - cardSortValue(b);
-    return String(a.value).localeCompare(String(b.value));
+    return String(a.value).localeCompare(String(a.value));
   });
 }
 
@@ -565,7 +753,7 @@ function getColorName(color) {
    PARTIDAS
 ========================================================= */
 
-function createBaseGame(channel, ownerUser, vsBot = false) {
+function createBaseGame(channel, ownerUser, vsBot = false, botDifficulty = "easy") {
   const gameId = `${channel.id}_${Date.now()}`;
 
   const game = {
@@ -591,18 +779,20 @@ function createBaseGame(channel, ownerUser, vsBot = false) {
     messageId: null,
     lastAction: "Lobby creado.",
     vsBot,
+    botDifficulty,
     unoCalled: {},
     saidUnoThisGame: {},
     turnNumber: 0,
     createdAt: Date.now(),
     lastPlayedCardType: null,
-    tempChannel: vsBot
+    tempChannel: vsBot,
+    matchStats: {}
   };
 
   if (vsBot) {
     game.players.push({
       id: "UNO_BOT",
-      username: "UNO Bot",
+      username: `UNO Bot (${BOT_DIFFICULTIES[botDifficulty]?.name || "Fácil"})`,
       isBot: true
     });
   }
@@ -611,6 +801,7 @@ function createBaseGame(channel, ownerUser, vsBot = false) {
     game.hands[p.id] = [];
     game.unoCalled[p.id] = false;
     game.saidUnoThisGame[p.id] = false;
+    game.matchStats[p.id] = createMatchStatEntry();
   }
 
   return game;
@@ -629,6 +820,7 @@ function startGame(game) {
     game.hands[p.id] = [];
     game.unoCalled[p.id] = false;
     game.saidUnoThisGame[p.id] = false;
+    game.matchStats[p.id] = createMatchStatEntry();
   }
 
   for (let i = 0; i < 7; i++) {
@@ -689,9 +881,115 @@ function tryJoinLobby(game, user) {
   game.hands[user.id] = [];
   game.unoCalled[user.id] = false;
   game.saidUnoThisGame[user.id] = false;
+  game.matchStats[user.id] = createMatchStatEntry();
 
   refreshPlayerReferences(game);
   return { ok: true };
+}
+
+/* =========================================================
+   REMATCH
+========================================================= */
+
+function createRematchOfferFromGame(game) {
+  return {
+    channelId: game.channelId,
+    guildId: game.guildId,
+    ownerId: game.ownerId,
+    players: humanPlayers(game).map((p) => ({
+      id: p.id,
+      username: p.username,
+      isBot: false
+    })),
+    vsBot: game.vsBot,
+    botDifficulty: game.botDifficulty || "easy",
+    accepted: [],
+    createdAt: Date.now(),
+    tempChannel: game.tempChannel
+  };
+}
+
+function rematchAcceptedCount(offer) {
+  return offer.accepted.length;
+}
+
+function rematchAllAccepted(offer) {
+  return offer.players.every((p) => offer.accepted.includes(p.id));
+}
+
+function setRematchOffer(offer) {
+  rematchOffers.set(offer.channelId, offer);
+}
+
+function clearRematchOffer(channelId) {
+  rematchOffers.delete(channelId);
+}
+
+async function startRematchFromOffer(channel, offer) {
+  clearRematchOffer(channel.id);
+  clearRoomDeleteTimer(channel.id);
+
+  const owner = offer.players.find((p) => p.id === offer.ownerId) || offer.players[0];
+  const game = createBaseGame(channel, owner, offer.vsBot, offer.botDifficulty);
+
+  if (!offer.vsBot) {
+    game.players = offer.players.map((p) => ({
+      id: p.id,
+      username: p.username,
+      isBot: false
+    }));
+
+    game.hands = {};
+    game.unoCalled = {};
+    game.saidUnoThisGame = {};
+    game.matchStats = {};
+
+    for (const p of game.players) {
+      game.hands[p.id] = [];
+      game.unoCalled[p.id] = false;
+      game.saidUnoThisGame[p.id] = false;
+      game.matchStats[p.id] = createMatchStatEntry();
+    }
+  }
+
+  setGameReferences(game);
+  startGame(game);
+
+  await channel.send({
+    embeds: [
+      new EmbedBuilder()
+        .setColor(EMBED.brand)
+        .setTitle("🔁 Revancha iniciada")
+        .setDescription(
+          offer.vsBot
+            ? `Nueva partida vs bot en dificultad **${BOT_DIFFICULTIES[offer.botDifficulty].name}**`
+            : "Nueva partida con los mismos jugadores"
+        )
+    ]
+  });
+
+  await sendOrUpdateGameMessage(channel, game);
+
+  if (getCurrentPlayer(game)?.isBot) {
+    scheduleBotTurn(channel, game);
+  }
+}
+
+function scheduleTempRoomDeletion(channel, ms, reason) {
+  clearRoomDeleteTimer(channel.id);
+
+  const timer = setTimeout(async () => {
+    try {
+      await channel.delete(reason);
+    } catch (err) {
+      console.error("No se pudo borrar la sala temporal:", err);
+    } finally {
+      clearRoomDeleteTimer(channel.id);
+      clearRematchOffer(channel.id);
+    }
+  }, ms);
+
+  roomDeleteTimers.set(channel.id, timer);
 }
 
 /* =========================================================
@@ -716,7 +1014,8 @@ function helpEmbed() {
         "• Jugá mismo color, número o tipo",
         "• Si no podés, robás",
         "• Cuando te queda 1 carta, tocá UNO",
-        "• Gana el primero que se queda sin cartas"
+        "• Gana el primero que se queda sin cartas",
+        "• Ganando vs bot desbloqueás dificultades nuevas"
       ].join("\n")
     );
 }
@@ -740,6 +1039,24 @@ function rulesEmbed() {
     );
 }
 
+function difficultySelectEmbed(user) {
+  const stats = getPlayerStats(user.id, user.username);
+  const unlocked = getUnlockedDifficulties(stats);
+
+  const text = BOT_DIFFICULTY_ORDER.map((id) => {
+    const diff = BOT_DIFFICULTIES[id];
+    const ok = unlocked.includes(id);
+    return `${ok ? "✅" : "🔒"} **${diff.name}** — ${diff.desc} ${
+      ok ? "" : `(se desbloquea con ${diff.unlockVsBotWins} victorias vs bot)`
+    }`;
+  }).join("\n");
+
+  return new EmbedBuilder()
+    .setColor(EMBED.purple)
+    .setTitle("🤖 Elegí dificultad")
+    .setDescription(text);
+}
+
 function lobbyEmbed(game) {
   const playersText = game.players
     .map((p) => `${p.isBot ? "🤖" : "👤"} ${p.username}`)
@@ -748,7 +1065,11 @@ function lobbyEmbed(game) {
   return new EmbedBuilder()
     .setColor(EMBED.purple)
     .setTitle(game.vsBot ? "🤖 Partida vs Bot" : "🎮 Lobby UNO")
-    .setDescription(game.vsBot ? "Preparando partida..." : "Esperando jugadores...")
+    .setDescription(
+      game.vsBot
+        ? `Preparando partida...\nDificultad: **${BOT_DIFFICULTIES[game.botDifficulty].name}**`
+        : "Esperando jugadores..."
+    )
     .addFields({
       name: "Jugadores",
       value: playersText || "Sin jugadores"
@@ -768,6 +1089,10 @@ function gameEmbed(game) {
     })
     .join("\n");
 
+  const extra = game.vsBot
+    ? `\n**Bot:** ${BOT_DIFFICULTIES[game.botDifficulty].name}`
+    : "";
+
   return new EmbedBuilder()
     .setColor(EMBED.dark)
     .setTitle("🃏 UNO")
@@ -775,7 +1100,7 @@ function gameEmbed(game) {
       [
         `**Carta:** ${topCard.label}`,
         `**Color:** ${COLORS[color]} ${getColorName(color)}`,
-        `**Turno:** ${currentPlayer.username}`
+        `**Turno:** ${currentPlayer.username}${extra}`
       ].join("\n")
     )
     .addFields(
@@ -790,7 +1115,12 @@ function topEmbed() {
   const text =
     ranking.length === 0
       ? "Todavía no hay jugadores."
-      : ranking.map((p, i) => `**${i + 1}.** ${p.username} — ⚡ ${p.elo}`).join("\n");
+      : ranking
+          .map(
+            (p, i) =>
+              `**${i + 1}.** ${p.username} — ⚡ ${p.elo} · 🆙 Nivel ${p.level}`
+          )
+          .join("\n");
 
   return new EmbedBuilder()
     .setColor(EMBED.warning)
@@ -802,6 +1132,8 @@ function profileEmbed(user) {
   const stats = getPlayerStats(user.id, user.username);
   const rank = getPlayerRank(user.id);
   const achievementCount = Array.isArray(stats.achievements) ? stats.achievements.length : 0;
+  const lvl = computeLevelFromXp(stats.xp || 0);
+  const highestDiff = BOT_DIFFICULTIES[getHighestUnlockedDifficulty(stats)].name;
 
   return new EmbedBuilder()
     .setColor(EMBED.brand)
@@ -809,15 +1141,36 @@ function profileEmbed(user) {
     .setThumbnail(user.displayAvatarURL())
     .setDescription(
       [
-        `⚡ Elo: **${stats.elo ?? 1000}**`,
-        `🏆 Victorias: **${stats.wins ?? 0}**`,
-        `❌ Derrotas: **${stats.losses ?? 0}**`,
-        `🎮 Partidas: **${stats.gamesPlayed ?? 0}**`,
-        `🤖 Vs Bot: **${stats.vsBotWins ?? 0}**`,
-        `⚔️ PvP: **${stats.pvpWins ?? 0}**`,
+        `⚡ Elo: **${stats.elo}**`,
+        `🆙 Nivel: **${lvl.level}**`,
+        `✨ XP: **${lvl.currentXp}/${lvl.nextLevelXp}**`,
+        `🪙 Monedas: **${stats.coins || 0}**`,
+        `🏆 Victorias: **${stats.wins}**`,
+        `❌ Derrotas: **${stats.losses}**`,
+        `📊 Winrate: **${winRate(stats)}%**`,
+        `🎮 Partidas: **${stats.gamesPlayed}**`,
+        `🤖 Vs Bot: **${stats.vsBotWins}**`,
+        `⚔️ PvP: **${stats.pvpWins}**`,
+        `🔥 Racha actual: **${stats.winStreak}**`,
+        `🚀 Mejor racha: **${stats.bestWinStreak || 0}**`,
+        `📢 UNO dicho: **${stats.unoCalls || 0}**`,
+        `💥 UNO olvidado: **${stats.unoFails || 0}**`,
+        `🃏 Cartas jugadas: **${stats.cardsPlayed || 0}**`,
+        `⚡ Victorias rápidas: **${stats.fastWins || 0}**`,
+        `🤖 Máxima dificultad: **${highestDiff}**`,
         `📈 Posición: **${rank ? `#${rank}` : "Sin rank"}**`,
         `🏅 Logros: **${achievementCount}/${ACHIEVEMENTS.length}**`
       ].join("\n")
+    )
+    .addFields(
+      {
+        name: "Dificultades desbloqueadas",
+        value: difficultyText(stats) || "Fácil"
+      },
+      {
+        name: "Siguiente meta",
+        value: nextDifficultyGoal(stats)
+      }
     );
 }
 
@@ -830,7 +1183,9 @@ function historyEmbed() {
       : history
           .map(
             (h, i) =>
-              `**${i + 1}.** ${h.winner} ganó\n${h.players.join(" vs ")}\nModo: ${h.mode} · Turnos: ${h.turns}`
+              `**${i + 1}.** ${h.winner} ganó\n${h.players.join(" vs ")}\nModo: ${h.mode}${
+                h.difficulty ? ` · Dif: ${h.difficulty}` : ""
+              } · Turnos: ${h.turns}`
           )
           .join("\n\n");
 
@@ -848,13 +1203,16 @@ function achievementsEmbed(user) {
   const unlockedText =
     owned.length === 0
       ? "Todavía no desbloqueaste ninguno."
-      : owned.map((a) => `✅ **${a.name}**\n${a.description}\nProbabilidad: ${a.chance}`).join("\n\n");
+      : owned
+          .slice(0, 8)
+          .map((a) => `✅ **${a.name}**\n${a.description}\nProbabilidad: ${a.chance}`)
+          .join("\n\n");
 
   const missingText =
     missing.length === 0
       ? "Ya tenés todos los logros."
       : missing
-          .slice(0, 6)
+          .slice(0, 8)
           .map((a) => `⬜ **${a.name}**\n${a.description}\nProbabilidad: ${a.chance}`)
           .join("\n\n");
 
@@ -898,8 +1256,19 @@ function achievementUnlockEmbed(achievement) {
     .setDescription(`**${achievement.name}**\n${achievement.description}`);
 }
 
+function rematchEmbed(offer) {
+  return new EmbedBuilder()
+    .setColor(EMBED.purple)
+    .setTitle("🔁 Revancha disponible")
+    .setDescription(
+      offer.vsBot
+        ? `Presioná **Revancha** para jugar otra partida contra el bot en dificultad **${BOT_DIFFICULTIES[offer.botDifficulty].name}**.`
+        : `Aceptaciones: **${rematchAcceptedCount(offer)}/${offer.players.length}**`
+    );
+}
+
 /* =========================================================
-   BOTONES
+   COMPONENTES
 ========================================================= */
 
 function menuComponents() {
@@ -938,6 +1307,26 @@ function menuComponents() {
         .setStyle(ButtonStyle.Secondary)
         .setEmoji("🏅")
     )
+  ];
+}
+
+function difficultyComponents(user) {
+  const stats = getPlayerStats(user.id, user.username);
+  const unlocked = getUnlockedDifficulties(stats);
+
+  const buttons = BOT_DIFFICULTY_ORDER.map((id) => {
+    const diff = BOT_DIFFICULTIES[id];
+    const enabled = unlocked.includes(id);
+
+    return new ButtonBuilder()
+      .setCustomId(`uno_botdiff_${id}`)
+      .setLabel(diff.name)
+      .setStyle(enabled ? ButtonStyle.Success : ButtonStyle.Secondary)
+      .setDisabled(!enabled);
+  });
+
+  return [
+    new ActionRowBuilder().addComponents(buttons.slice(0, 4))
   ];
 }
 
@@ -1076,6 +1465,28 @@ function wildColorComponents(game, card) {
   ];
 }
 
+function rematchComponents(channelId, includeCloseRoom = false) {
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`uno_rematch_${channelId}`)
+      .setLabel("Revancha")
+      .setStyle(ButtonStyle.Primary)
+      .setEmoji("🔁")
+  );
+
+  if (includeCloseRoom) {
+    row.addComponents(
+      new ButtonBuilder()
+        .setCustomId(`uno_closeroom_${channelId}`)
+        .setLabel("Cerrar sala")
+        .setStyle(ButtonStyle.Danger)
+        .setEmoji("🗑️")
+    );
+  }
+
+  return [row];
+}
+
 /* =========================================================
    RESPUESTAS
 ========================================================= */
@@ -1117,13 +1528,13 @@ async function sendOrUpdateGameMessage(channel, game) {
 }
 
 /* =========================================================
-   TURNOS
+   TURNOS Y ANTI-FREEZE
 ========================================================= */
 
 function scheduleBotTurn(channel, game) {
   clearBotTurnTimers(game.id);
 
-  console.log("[advanceTurn] le toca al bot:", game.id);
+  console.log("[advanceTurn] le toca al bot:", game.id, "dif:", game.botDifficulty);
 
   const playTimer = setTimeout(async () => {
     try {
@@ -1142,10 +1553,9 @@ function scheduleBotTurn(channel, game) {
     try {
       if (game.finished) return;
       const current = getCurrentPlayer(game);
-
       if (!current?.isBot) return;
 
-      console.log("[anti-freeze] bot trabado, forzando turno:", game.id);
+      console.log("[anti-freeze] bot trabado, recuperando:", game.id);
 
       const card = chooseBotCard(game);
 
@@ -1230,43 +1640,85 @@ async function finishGame(channel, game, winner) {
   clearBotTurnTimers(game.id);
 
   const stats = loadStats();
+  const humans = humanPlayers(game);
+  const winnerIsBot = winner.isBot === true;
 
-  for (const p of game.players) {
-    if (!p.isBot) {
-      if (!stats[p.id]) stats[p.id] = createDefaultPlayer(p.username);
-      stats[p.id].username = p.username;
-      stats[p.id].gamesPlayed += 1;
+  for (const p of humans) {
+    if (!stats[p.id]) stats[p.id] = createDefaultPlayer(p.username);
+    stats[p.id].username = p.username;
+    stats[p.id].gamesPlayed += 1;
+
+    const match = game.matchStats[p.id] || createMatchStatEntry();
+    stats[p.id].cardsPlayed += match.cardsPlayed;
+    stats[p.id].unoCalls += match.unoCalls;
+    stats[p.id].unoFails += match.unoFails;
+    stats[p.id].highestHandRecovered = Math.max(
+      stats[p.id].highestHandRecovered || 7,
+      match.maxHand || 7
+    );
+  }
+
+  const unlockedEmbeds = [];
+
+  for (const p of humans) {
+    const playerStats = stats[p.id];
+    const won = winner.id === p.id;
+    const match = game.matchStats[p.id] || createMatchStatEntry();
+
+    if (won) {
+      playerStats.wins += 1;
+      playerStats.winStreak += 1;
+      playerStats.bestWinStreak = Math.max(playerStats.bestWinStreak || 0, playerStats.winStreak);
+
+      if (game.turnNumber <= 12) playerStats.fastWins += 1;
+
+      if (game.vsBot) {
+        playerStats.vsBotWins += 1;
+      } else {
+        playerStats.pvpWins += 1;
+      }
+
+      if (game.vsBot) {
+        playerStats.elo += 12;
+        addRewards(
+          playerStats,
+          BOT_DIFFICULTIES[game.botDifficulty].rewardXpWin,
+          BOT_DIFFICULTIES[game.botDifficulty].rewardCoinsWin
+        );
+      } else {
+        playerStats.elo += game.players.length === 2 ? 16 : 15;
+        addRewards(playerStats, 35, 25);
+      }
+
+      const unlocked = evaluateAchievements(stats, p.id, {
+        quickWin: game.turnNumber <= 12,
+        usedUnoAndWon: game.saidUnoThisGame[p.id] === true,
+        wonWithWild4: game.lastPlayedCardType === "wild4",
+        maxHandRecovered: match.maxHand || 7
+      });
+
+      unlockedEmbeds.push(...unlocked);
+    } else {
+      playerStats.losses += 1;
+      playerStats.winStreak = 0;
+
+      if (game.vsBot) {
+        playerStats.elo = Math.max(800, playerStats.elo - 5);
+        addRewards(
+          playerStats,
+          BOT_DIFFICULTIES[game.botDifficulty].rewardXpLose,
+          BOT_DIFFICULTIES[game.botDifficulty].rewardCoinsLose
+        );
+      } else {
+        playerStats.elo = Math.max(800, playerStats.elo - 6);
+        addRewards(playerStats, 15, 10);
+      }
+
+      evaluateAchievements(stats, p.id, {});
     }
+
+    playerStats.level = computeLevelFromXp(playerStats.xp).level;
   }
-
-  const losers = game.players.filter((p) => p.id !== winner.id);
-
-  if (!stats[winner.id]) stats[winner.id] = createDefaultPlayer(winner.username);
-  stats[winner.id].wins += 1;
-  stats[winner.id].winStreak += 1;
-
-  if (game.vsBot) {
-    stats[winner.id].vsBotWins += 1;
-    stats[winner.id].elo += 12;
-  } else if (game.players.length >= 2) {
-    stats[winner.id].pvpWins += 1;
-    stats[winner.id].elo += game.players.length === 2 ? 16 : 15;
-  }
-
-  for (const loser of losers) {
-    if (!loser.isBot) {
-      if (!stats[loser.id]) stats[loser.id] = createDefaultPlayer(loser.username);
-      stats[loser.id].losses += 1;
-      stats[loser.id].winStreak = 0;
-      stats[loser.id].elo = Math.max(800, stats[loser.id].elo - 6);
-    }
-  }
-
-  const unlocked = evaluateAchievements(stats, winner.id, {
-    quickWin: game.turnNumber <= 12,
-    usedUnoAndWon: game.saidUnoThisGame[winner.id] === true,
-    wonWithWild4: game.lastPlayedCardType === "wild4"
-  });
 
   saveStats(stats);
 
@@ -1274,44 +1726,59 @@ async function finishGame(channel, game, winner) {
     winner: winner.username,
     players: game.players.map((p) => p.username),
     mode: game.vsBot ? "Vs Bot" : game.players.length === 2 ? "PvP" : "Multijugador",
+    difficulty: game.vsBot ? BOT_DIFFICULTIES[game.botDifficulty].name : null,
     turns: game.turnNumber,
     createdAt: new Date().toISOString()
   });
 
-  const winnerStats = stats[winner.id];
+  const summaryText = winnerIsBot
+    ? `**${winner.username}** ganó la partida`
+    : `**${winner.username}** ganó la partida`;
+
+  const rewardText = humans
+    .map((p) => {
+      const st = stats[p.id];
+      const lvl = computeLevelFromXp(st.xp);
+      return `**${p.username}** — 🪙 ${st.coins} · 🆙 ${lvl.level} · ⚡ ${st.elo}`;
+    })
+    .join("\n");
 
   const endEmbed = new EmbedBuilder()
     .setColor(EMBED.success)
-    .setTitle("🏆 Victoria")
-    .setDescription(`**${winner.username}** ganó la partida`)
+    .setTitle("🏆 Fin de partida")
+    .setDescription(summaryText)
     .addFields(
       {
         name: "Resumen",
-        value: `Modo: ${game.vsBot ? "Vs Bot" : "PvP"}\nTurnos: ${game.turnNumber}`
+        value: `Modo: ${game.vsBot ? "Vs Bot" : "PvP"}${
+          game.vsBot ? `\nDificultad: ${BOT_DIFFICULTIES[game.botDifficulty].name}` : ""
+        }\nTurnos: ${game.turnNumber}`
       },
       {
-        name: "Nuevo elo",
-        value: `⚡ ${winnerStats.elo}`
+        name: "Estado de jugadores",
+        value: rewardText || "Sin datos"
       }
     );
 
   await channel.send({ embeds: [endEmbed] });
-  await sendAchievementUnlocks(channel, unlocked);
+  await sendAchievementUnlocks(channel, unlockedEmbeds);
 
   removeGameReferences(game);
 
+  const offer = createRematchOfferFromGame(game);
+  setRematchOffer(offer);
+
+  await channel.send({
+    embeds: [rematchEmbed(offer)],
+    components: rematchComponents(channel.id, game.tempChannel)
+  });
+
   if (game.tempChannel) {
     await channel
-      .send(`🗑️ Esta sala temporal se eliminará en ${TEMP_DELETE_DELAY_MS / 1000} segundos.`)
+      .send(`🗑️ La sala temporal se eliminará en ${REMATCH_ROOM_TIMEOUT_MS / 1000} segundos si nadie pide revancha.`)
       .catch(() => null);
 
-    setTimeout(async () => {
-      try {
-        await channel.delete("Partida UNO vs Bot terminada");
-      } catch (err) {
-        console.error("No se pudo borrar el canal temporal:", err);
-      }
-    }, TEMP_DELETE_DELAY_MS);
+    scheduleTempRoomDeletion(channel, REMATCH_ROOM_TIMEOUT_MS, "Sala UNO inactiva tras fin de partida");
   }
 }
 
@@ -1320,6 +1787,10 @@ async function applyPlayedCard(channel, game, player, card, selectedColor = null
 
   game.discard.push(card);
   game.lastPlayedCardType = card.type;
+
+  if (game.matchStats[player.id]) {
+    game.matchStats[player.id].cardsPlayed += 1;
+  }
 
   if (card.type === "wild" || card.type === "wild4") {
     game.currentColor = selectedColor || "red";
@@ -1350,8 +1821,6 @@ async function applyPlayedCard(channel, game, player, card, selectedColor = null
     drawCards(game, next.id, 4);
     skipAmount = 2;
     game.lastAction = `${player.username} jugó ${card.label} · ${next.username} roba 4`;
-  } else if (card.type === "wild") {
-    game.lastAction = `${player.username} jugó ${card.label}`;
   } else {
     game.lastAction = `${player.username} jugó ${card.label}`;
   }
@@ -1363,6 +1832,10 @@ async function applyPlayedCard(channel, game, player, card, selectedColor = null
     } else {
       drawCards(game, player.id, 2);
       game.lastAction += " · olvidó UNO y robó 2";
+
+      if (game.matchStats[player.id]) {
+        game.matchStats[player.id].unoFails += 1;
+      }
     }
   }
 
@@ -1380,7 +1853,32 @@ async function applyPlayedCard(channel, game, player, card, selectedColor = null
    IA BOT
 ========================================================= */
 
-function chooseBotCard(game) {
+function countColorsInHand(hand) {
+  const count = { red: 0, blue: 0, green: 0, yellow: 0 };
+  for (const c of hand) {
+    if (count[c.color] !== undefined) count[c.color]++;
+  }
+  return count;
+}
+
+function bestBotColor(game) {
+  const hand = game.hands["UNO_BOT"] || [];
+  const count = countColorsInHand(hand);
+  return Object.entries(count).sort((a, b) => b[1] - a[1])[0]?.[0] || "red";
+}
+
+function chooseBotCardEasy(game) {
+  const hand = sortHand(game.hands["UNO_BOT"] || []);
+  const playable = hand.filter((card) => canPlay(card, game));
+  if (!playable.length) return null;
+
+  const numbers = playable.filter((c) => c.type === "number");
+  if (numbers.length) return numbers[Math.floor(Math.random() * numbers.length)];
+
+  return playable[Math.floor(Math.random() * playable.length)];
+}
+
+function chooseBotCardNormal(game) {
   const hand = sortHand(game.hands["UNO_BOT"] || []);
   const playable = hand.filter((card) => canPlay(card, game));
   if (!playable.length) return null;
@@ -1398,15 +1896,73 @@ function chooseBotCard(game) {
   return playable[0];
 }
 
-function bestBotColor(game) {
-  const hand = game.hands["UNO_BOT"] || [];
-  const count = { red: 0, blue: 0, green: 0, yellow: 0 };
+function chooseBotCardHard(game) {
+  const hand = sortHand(game.hands["UNO_BOT"] || []);
+  const playable = hand.filter((card) => canPlay(card, game));
+  if (!playable.length) return null;
 
-  for (const c of hand) {
-    if (count[c.color] !== undefined) count[c.color]++;
+  const next = getNextPlayer(game);
+  const nextCards = game.hands[next.id]?.length || 99;
+
+  const finishers = playable.filter((card) => hand.length === 1 || hand.length === 2);
+  if (finishers.length) return finishers[0];
+
+  if (nextCards <= 2) {
+    const attacks = playable.filter((c) => ["draw2", "wild4", "skip"].includes(c.type));
+    if (attacks.length) return attacks[0];
   }
 
-  return Object.entries(count).sort((a, b) => b[1] - a[1])[0]?.[0] || "red";
+  const nonWild = playable.filter((c) => c.type !== "wild" && c.type !== "wild4");
+  if (nonWild.length) {
+    const colors = countColorsInHand(hand);
+    nonWild.sort((a, b) => (colors[b.color] || 0) - (colors[a.color] || 0));
+    return nonWild[0];
+  }
+
+  return playable[0];
+}
+
+function chooseBotCardInsane(game) {
+  const hand = sortHand(game.hands["UNO_BOT"] || []);
+  const playable = hand.filter((card) => canPlay(card, game));
+  if (!playable.length) return null;
+
+  const next = getNextPlayer(game);
+  const nextCards = game.hands[next.id]?.length || 99;
+
+  if (hand.length <= 2) {
+    const finisher = playable.find((c) => c.type === "number" || c.type === "skip" || c.type === "draw2" || c.type === "wild4");
+    if (finisher) return finisher;
+  }
+
+  if (nextCards <= 2) {
+    const punish = playable.find((c) => ["wild4", "draw2", "skip"].includes(c.type));
+    if (punish) return punish;
+  }
+
+  const topColor = getCurrentColor(game);
+  const sameColor = playable.filter((c) => c.color === topColor && c.type !== "wild" && c.type !== "wild4");
+  if (sameColor.length) {
+    sameColor.sort((a, b) => cardSortValue(b) - cardSortValue(a));
+    return sameColor[0];
+  }
+
+  const useful = playable.filter((c) => c.type !== "wild" && c.type !== "wild4");
+  if (useful.length) {
+    useful.sort((a, b) => cardSortValue(b) - cardSortValue(a));
+    return useful[0];
+  }
+
+  return playable[0];
+}
+
+function chooseBotCard(game) {
+  const diff = game.botDifficulty || "easy";
+
+  if (diff === "easy") return chooseBotCardEasy(game);
+  if (diff === "normal") return chooseBotCardNormal(game);
+  if (diff === "hard") return chooseBotCardHard(game);
+  return chooseBotCardInsane(game);
 }
 
 async function botPlay(channel, game) {
@@ -1437,10 +1993,7 @@ async function botPlay(channel, game) {
       const hand = game.hands["UNO_BOT"];
       const idx = hand.findIndex((c) => c.id === drawn.id);
 
-      if (idx === -1) {
-        console.log("[botPlay] no encontró carta robada en mano");
-        return;
-      }
+      if (idx === -1) return;
 
       const playedCard = hand.splice(idx, 1)[0];
       const color =
@@ -1462,11 +2015,7 @@ async function botPlay(channel, game) {
 
   const hand = game.hands["UNO_BOT"];
   const idx = hand.findIndex((c) => c.id === card.id);
-
-  if (idx === -1) {
-    console.log("[botPlay] no encontró carta elegida en mano");
-    return;
-  }
+  if (idx === -1) return;
 
   const playedCard = hand.splice(idx, 1)[0];
   const selectedColor =
@@ -1510,7 +2059,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
 
       if (interaction.commandName === "perfil") {
-        await interaction.reply({ embeds: [profileEmbed(interaction.user)] });
+        const target = interaction.options.getUser("usuario") || interaction.user;
+        await interaction.reply({ embeds: [profileEmbed(target)] });
         return;
       }
 
@@ -1533,6 +2083,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (!interaction.isButton() && !interaction.isStringSelectMenu()) return;
 
     const customId = interaction.customId;
+
+    /* =========================
+       MENÚ PRINCIPAL
+    ========================= */
 
     if (customId === "uno_menu_find") {
       const existing = getGameByChannelId(interaction.channel.id);
@@ -1578,6 +2132,27 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     if (customId === "uno_menu_bot") {
+      await interaction.reply({
+        embeds: [difficultySelectEmbed(interaction.user)],
+        components: difficultyComponents(interaction.user),
+        ephemeral: true
+      });
+      return;
+    }
+
+    if (customId.startsWith("uno_botdiff_")) {
+      const diffId = customId.replace("uno_botdiff_", "");
+      const stats = getPlayerStats(interaction.user.id, interaction.user.username);
+      const unlocked = getUnlockedDifficulties(stats);
+
+      if (!unlocked.includes(diffId)) {
+        await interaction.reply({
+          content: `⚠️ No tenés desbloqueada la dificultad ${BOT_DIFFICULTIES[diffId]?.name || diffId}.`,
+          ephemeral: true
+        });
+        return;
+      }
+
       if (!interaction.guild) {
         await interaction.reply({
           content: "⚠️ Esto solo funciona dentro de un servidor.",
@@ -1595,21 +2170,20 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
 
       const tempChannel = await createTempUnoChannel(interaction.guild, interaction.user);
-      const game = createBaseGame(tempChannel, interaction.user, true);
+      const game = createBaseGame(tempChannel, interaction.user, true, diffId);
 
       setGameReferences(game);
       startGame(game);
 
       await interaction.reply({
-        content: `🤖 Te creé una sala privada para jugar: ${tempChannel}`,
+        content: `🤖 Te creé una sala privada para jugar en **${BOT_DIFFICULTIES[diffId].name}**: ${tempChannel}`,
         ephemeral: true
       });
 
       await tempChannel.send(`🎮 ${interaction.user}, tu partida de UNO vs Bot empezó acá.`);
       await sendOrUpdateGameMessage(tempChannel, game);
 
-      const current = getCurrentPlayer(game);
-      if (current?.isBot) {
+      if (getCurrentPlayer(game)?.isBot) {
         scheduleBotTurn(tempChannel, game);
       }
 
@@ -1653,6 +2227,97 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await interaction.reply({ embeds: [achievementsEmbed(interaction.user)], ephemeral: true });
       return;
     }
+
+    /* =========================
+       REMATCH
+    ========================= */
+
+    if (customId.startsWith("uno_rematch_")) {
+      const channelId = customId.replace("uno_rematch_", "");
+      const offer = rematchOffers.get(channelId);
+
+      if (!offer) {
+        await interaction.reply({
+          content: "⚠️ La revancha ya no está disponible.",
+          ephemeral: true
+        });
+        return;
+      }
+
+      const allowed = offer.players.find((p) => p.id === interaction.user.id);
+      if (!allowed) {
+        await interaction.reply({
+          content: "⚠️ No formaste parte de esa partida.",
+          ephemeral: true
+        });
+        return;
+      }
+
+      if (!offer.accepted.includes(interaction.user.id)) {
+        offer.accepted.push(interaction.user.id);
+      }
+
+      if (offer.vsBot) {
+        await interaction.reply({
+          content: "🔁 Revancha aceptada. Arrancando otra partida...",
+          ephemeral: true
+        });
+
+        await startRematchFromOffer(interaction.channel, offer);
+        return;
+      }
+
+      await interaction.reply({
+        content: `✅ Revancha aceptada (${rematchAcceptedCount(offer)}/${offer.players.length}).`,
+        ephemeral: true
+      });
+
+      await interaction.channel.send({
+        embeds: [rematchEmbed(offer)],
+        components: rematchComponents(interaction.channel.id, offer.tempChannel)
+      });
+
+      if (rematchAllAccepted(offer)) {
+        await startRematchFromOffer(interaction.channel, offer);
+      }
+
+      return;
+    }
+
+    if (customId.startsWith("uno_closeroom_")) {
+      const channelId = customId.replace("uno_closeroom_", "");
+      const offer = rematchOffers.get(channelId);
+
+      if (offer && offer.ownerId !== interaction.user.id) {
+        await interaction.reply({
+          content: "⚠️ Solo el creador puede cerrar la sala.",
+          ephemeral: true
+        });
+        return;
+      }
+
+      await interaction.reply({
+        content: "🗑️ Cerrando sala...",
+        ephemeral: true
+      });
+
+      clearRematchOffer(channelId);
+      clearRoomDeleteTimer(channelId);
+
+      setTimeout(async () => {
+        try {
+          await interaction.channel.delete("Cierre manual de sala post-partida");
+        } catch (err) {
+          console.error("Error borrando sala post-partida:", err);
+        }
+      }, 2000);
+
+      return;
+    }
+
+    /* =========================
+       COLOR WILD
+    ========================= */
 
     if (customId.startsWith("uno_color_")) {
       const parts = customId.split("_");
@@ -1707,6 +2372,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return;
     }
 
+    /* =========================
+       ACCIONES GENERALES DE PARTIDA
+    ========================= */
+
     if (customId.startsWith("uno_topgame_")) {
       await interaction.reply({ embeds: [topEmbed()], ephemeral: true });
       return;
@@ -1753,6 +2422,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       delete game.hands[interaction.user.id];
       delete game.unoCalled[interaction.user.id];
       delete game.saidUnoThisGame[interaction.user.id];
+      delete game.matchStats[interaction.user.id];
       playerGames.delete(interaction.user.id);
 
       if (!game.players.length) {
@@ -1800,8 +2470,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await interaction.reply({ content: "🚀 La partida comenzó.", ephemeral: true });
       await sendOrUpdateGameMessage(interaction.channel, game);
 
-      const current = getCurrentPlayer(game);
-      if (current?.isBot) {
+      if (getCurrentPlayer(game)?.isBot) {
         scheduleBotTurn(interaction.channel, game);
       }
 
@@ -1865,6 +2534,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
       });
 
       removeGameReferences(game);
+      clearRematchOffer(interaction.channel.id);
+      clearRoomDeleteTimer(interaction.channel.id);
 
       try {
         await interaction.channel.send("🗑️ Sala cerrada manualmente.");
@@ -1895,6 +2566,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (game.hands[player.id].length <= 2) {
         game.unoCalled[player.id] = true;
         game.saidUnoThisGame[player.id] = true;
+
+        if (game.matchStats[player.id]) {
+          game.matchStats[player.id].unoCalls += 1;
+        }
+
         await interaction.reply({ content: "📢 Dijiste UNO.", ephemeral: true });
       } else {
         await interaction.reply({
