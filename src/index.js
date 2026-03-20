@@ -54,7 +54,94 @@ async function testDB() {
     console.error('❌ Error conectando a Postgres:', err);
   }
 }
+/* =========================
+   SQL - USERS
+========================= */
 
+async function initDB() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS uno_users (
+      user_id TEXT PRIMARY KEY,
+      coins INT DEFAULT 0,
+      wins INT DEFAULT 0,
+      losses INT DEFAULT 0,
+      games INT DEFAULT 0,
+      xp INT DEFAULT 0,
+      level INT DEFAULT 1,
+      history JSONB DEFAULT '[]'
+    );
+  `);
+
+  console.log("📦 Tabla SQL lista");
+}
+
+async function getUser(userId) {
+  const res = await pool.query(
+    "SELECT * FROM uno_users WHERE user_id = $1",
+    [userId]
+  );
+
+  if (res.rows.length === 0) {
+    await pool.query(
+      "INSERT INTO uno_users (user_id) VALUES ($1)",
+      [userId]
+    );
+    return getUser(userId);
+  }
+
+  return res.rows[0];
+}
+
+async function saveUser(userId, user) {
+  await pool.query(`
+    UPDATE uno_users
+    SET coins = $1,
+        wins = $2,
+        losses = $3,
+        games = $4,
+        xp = $5,
+        level = $6,
+        history = $7
+    WHERE user_id = $8
+  `, [
+    user.coins,
+    user.wins,
+    user.losses,
+    user.games,
+    user.xp,
+    user.level,
+    JSON.stringify(user.history),
+    userId
+  ]);
+}
+
+// 👇 PASO 4 VA ACÁ
+async function endGameSQL(userId, win) {
+  const user = await getUser(userId);
+
+  user.games += 1;
+
+  if (win) {
+    user.wins += 1;
+    user.coins += 50;
+    user.xp += 20;
+  } else {
+    user.losses += 1;
+    user.xp += 10;
+  }
+
+  if (user.xp >= user.level * 100) {
+    user.level += 1;
+    user.xp = 0;
+  }
+
+  user.history.push({
+    result: win ? "win" : "lose",
+    date: new Date().toISOString()
+  });
+
+  await saveUser(userId, user);
+}
 const TEMP_CATEGORY_NAME = "UNO TEMP";
 const TEMP_DELETE_DELAY_MS = 15000;
 const REMATCH_ROOM_TIMEOUT_MS = 60000;
@@ -2463,6 +2550,17 @@ async function finishGame(channel, game, winner) {
     })
     .join("\n");
 
+  const winnerId = winner.id;
+
+// ganador
+await endGameSQL(winnerId, true);
+
+// perdedores
+for (const p of game.players) {
+  if (p.id !== winnerId) {
+    await endGameSQL(p.id, false);
+  }
+}
   const endEmbed = new EmbedBuilder()
     .setColor(EMBED.success)
     .setTitle("🏆 Fin de partida")
@@ -2756,10 +2854,26 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
 
       if (interaction.commandName === "perfil") {
-        const target = interaction.options.getUser("usuario") || interaction.user;
-        await interaction.reply({ embeds: [profileEmbed(target)] });
-        return;
-      }
+  const target = interaction.options.getUser("usuario") || interaction.user;
+
+  const user = await getUser(target.id);
+
+  const embed = new EmbedBuilder()
+    .setTitle(`👤 Perfil de ${target.username}`)
+    .setDescription(`
+💰 Monedas: ${user.coins}
+🏆 Victorias: ${user.wins}
+💀 Derrotas: ${user.losses}
+🎮 Partidas: ${user.games}
+
+⭐ XP: ${user.xp}
+📊 Nivel: ${user.level}
+    `)
+    .setColor("Blue");
+
+  await interaction.reply({ embeds: [embed] });
+  return;
+}
 
       if (interaction.commandName === "historial") {
         await interaction.reply({ embeds: [historyEmbed()] });
@@ -3650,7 +3764,8 @@ client.once(Events.ClientReady, async (c) => {
   ensureDataFiles();
   console.log(`✅ Bot conectado como ${c.user.tag}`);
 
-  await testDB(); // conexión a PostgreSQL
+  await testDB();
+  await initDB();
 
   await registerSlashCommands();
 });
