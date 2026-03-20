@@ -32,12 +32,12 @@ const DATA_DIR = path.join(__dirname, "data");
 const STATS_PATH = path.join(DATA_DIR, "unoStats.json");
 const HISTORY_PATH = path.join(DATA_DIR, "unoHistory.json");
 
-const games = new Map(); // gameId -> game
-const channelGames = new Map(); // channelId -> gameId
-const playerGames = new Map(); // userId -> gameId
-const botTurnTimers = new Map(); // gameId -> { playTimer, failSafeTimer }
-const rematchOffers = new Map(); // channelId -> offer
-const roomDeleteTimers = new Map(); // channelId -> timeout
+const games = new Map();
+const channelGames = new Map();
+const playerGames = new Map();
+const botTurnTimers = new Map();
+const rematchOffers = new Map();
+const roomDeleteTimers = new Map();
 
 let CARD_SEQ = 1;
 
@@ -113,6 +113,79 @@ const BOT_DIFFICULTIES = {
 };
 
 const BOT_DIFFICULTY_ORDER = ["easy", "normal", "hard", "insane"];
+
+/* =========================================================
+   TIENDA
+========================================================= */
+
+const STORE_ITEMS = {
+  boxes: [
+    {
+      id: "basic_box",
+      name: "Caja básica",
+      emoji: "📦",
+      price: 100,
+      description: "Puede dar monedas, XP, títulos, insignias o boosts"
+    },
+    {
+      id: "rare_box",
+      name: "Caja rara",
+      emoji: "🎁",
+      price: 300,
+      description: "Mejores chances de recompensas raras"
+    },
+    {
+      id: "epic_box",
+      name: "Caja épica",
+      emoji: "💎",
+      price: 700,
+      description: "Alta chance de recompensas buenas"
+    }
+  ],
+  titles: [
+    { id: "rookie", name: "🐣 Novato", price: 50, description: "Tu primer título" },
+    { id: "bot_hunter_title", name: "🤖 Cazador de Bots", price: 220, description: "Para fans del PvE" },
+    { id: "unstoppable", name: "🔥 Imparable", price: 400, description: "Puro ego" },
+    { id: "uno_king", name: "👑 Rey del UNO", price: 900, description: "Status máximo" }
+  ],
+  badges: [
+    { id: "champion_badge", name: "🏆 Campeón", price: 250, description: "Se muestra en tu perfil" },
+    { id: "pro_badge", name: "⚡ Pro", price: 350, description: "Para destacar" },
+    { id: "tryhard_badge", name: "💀 Tryhard", price: 700, description: "Te lo ganaste" }
+  ],
+  boosts: [
+    {
+      id: "xp_boost_3",
+      name: "✨ x2 XP (3 partidas)",
+      price: 200,
+      description: "Duplica el XP ganado durante 3 partidas",
+      effect: "xp",
+      multiplier: 2,
+      uses: 3
+    },
+    {
+      id: "coin_boost_5",
+      name: "🪙 +50% monedas (5 partidas)",
+      price: 250,
+      description: "Más monedas durante 5 partidas",
+      effect: "coins",
+      multiplier: 1.5,
+      uses: 5
+    }
+  ]
+};
+
+function findStoreItemById(itemId) {
+  for (const category of Object.values(STORE_ITEMS)) {
+    const found = category.find((item) => item.id === itemId);
+    if (found) return found;
+  }
+  return null;
+}
+
+/* =========================================================
+   LOGROS
+========================================================= */
 
 const ACHIEVEMENTS = [
   {
@@ -223,7 +296,7 @@ const DAILY_MISSION_POOL = [
   {
     id: "win_games",
     name: "Victoria diaria",
-    description: "Ganás 1 partida",
+    description: "Ganá 1 partida",
     target: 1,
     rewardXp: 35,
     rewardCoins: 30
@@ -255,6 +328,7 @@ const slashCommands = [
   new SlashCommandBuilder().setName("reglas").setDescription("Mostrar reglas simples de UNO"),
   new SlashCommandBuilder().setName("ayuda").setDescription("Ver ayuda y comandos"),
   new SlashCommandBuilder().setName("top").setDescription("Ver ranking de jugadores"),
+  new SlashCommandBuilder().setName("tienda").setDescription("Abrir la tienda de UNO"),
   new SlashCommandBuilder()
     .setName("perfil")
     .setDescription("Ver perfil de UNO")
@@ -262,7 +336,7 @@ const slashCommands = [
       o.setName("usuario").setDescription("Jugador a consultar").setRequired(false)
     ),
   new SlashCommandBuilder().setName("historial").setDescription("Ver últimas partidas"),
-  new SlashCommandBuilder().setName("logros").setDescription("Ver tus logros"),
+  new SlashCommandBuilder().setName("logros").setDescription("Ver logros"),
   new SlashCommandBuilder().setName("misiones").setDescription("Ver tus misiones diarias")
 ].map((c) => c.toJSON());
 
@@ -331,7 +405,7 @@ function addMatchToHistory(entry) {
 }
 
 /* =========================================================
-   STATS, XP, LEVEL, LOGROS
+   STATS / XP / LEVEL / INVENTARIO
 ========================================================= */
 
 function xpRequiredForLevel(level) {
@@ -387,6 +461,11 @@ function createDefaultPlayer(username = "Jugador") {
     unoFails: 0,
     fastWins: 0,
     highestHandRecovered: 7,
+    ownedTitles: [],
+    equippedTitle: null,
+    ownedBadges: [],
+    equippedBadge: null,
+    activeBoosts: [],
     dailyMissions: {
       date: todayKey(),
       missions: DAILY_MISSION_POOL.map(createDailyMissionEntry)
@@ -407,6 +486,18 @@ function ensureDailyMissions(player) {
   return player.dailyMissions;
 }
 
+function normalizePlayer(player) {
+  const defaults = createDefaultPlayer(player?.username || "Jugador");
+  const normalized = { ...defaults, ...player };
+  ensureDailyMissions(normalized);
+
+  if (!Array.isArray(normalized.ownedTitles)) normalized.ownedTitles = [];
+  if (!Array.isArray(normalized.ownedBadges)) normalized.ownedBadges = [];
+  if (!Array.isArray(normalized.activeBoosts)) normalized.activeBoosts = [];
+
+  return normalized;
+}
+
 function getPlayerStats(userId, username = "Jugador") {
   const stats = loadStats();
 
@@ -416,23 +507,68 @@ function getPlayerStats(userId, username = "Jugador") {
     return stats[userId];
   }
 
-  const defaults = createDefaultPlayer(username);
-  stats[userId] = {
-    ...defaults,
+  stats[userId] = normalizePlayer({
     ...stats[userId],
     username
-  };
+  });
 
-  ensureDailyMissions(stats[userId]);
   saveStats(stats);
   return stats[userId];
+}
+
+function saveSinglePlayer(userId, player) {
+  const stats = loadStats();
+  stats[userId] = normalizePlayer(player);
+  saveStats(stats);
+}
+
+function getEquippedTitle(player) {
+  return player.equippedTitle || "Sin título";
+}
+
+function getEquippedBadge(player) {
+  return player.equippedBadge || "Sin insignia";
+}
+
+function getActiveBoostText(player) {
+  if (!player.activeBoosts?.length) return "Ninguno";
+  return player.activeBoosts
+    .map((b) => `${b.name} (${b.usesLeft} partidas)`)
+    .join("\n");
 }
 
 function addRewards(player, xp, coins) {
   player.xp += xp;
   player.coins += coins;
-  const lvl = computeLevelFromXp(player.xp);
-  player.level = lvl.level;
+}
+
+function applyBoostsToRewards(player, baseXp, baseCoins) {
+  let xp = baseXp;
+  let coins = baseCoins;
+
+  for (const boost of player.activeBoosts || []) {
+    if (boost.usesLeft <= 0) continue;
+
+    if (boost.effect === "xp") {
+      xp = Math.round(xp * boost.multiplier);
+    }
+
+    if (boost.effect === "coins") {
+      coins = Math.round(coins * boost.multiplier);
+    }
+  }
+
+  return { xp, coins };
+}
+
+function consumeBoostUses(player) {
+  if (!Array.isArray(player.activeBoosts)) return;
+
+  for (const boost of player.activeBoosts) {
+    if (boost.usesLeft > 0) boost.usesLeft -= 1;
+  }
+
+  player.activeBoosts = player.activeBoosts.filter((b) => b.usesLeft > 0);
 }
 
 function topPlayers(limit = 10) {
@@ -440,11 +576,10 @@ function topPlayers(limit = 10) {
 
   return Object.entries(stats)
     .map(([userId, data]) => {
-      const safe = {
-        ...createDefaultPlayer(data?.username || "Jugador"),
-        ...data
-      };
-      ensureDailyMissions(safe);
+      const safe = normalizePlayer({
+        ...data,
+        username: data?.username || "Jugador"
+      });
       const lvl = computeLevelFromXp(safe.xp || 0);
 
       return { userId, ...safe, level: lvl.level };
@@ -522,11 +657,15 @@ function updateMissionProgress(userId, username, missionId, amount = 1) {
   const stats = loadStats();
   if (!stats[userId]) stats[userId] = createDefaultPlayer(username);
 
+  stats[userId] = normalizePlayer({
+    ...stats[userId],
+    username
+  });
+
   const player = stats[userId];
-  player.username = username;
   const daily = ensureDailyMissions(player);
 
-  let rewards = [];
+  const rewards = [];
   for (const mission of daily.missions) {
     if (mission.id !== missionId) continue;
     if (mission.claimed) continue;
@@ -545,11 +684,6 @@ function updateMissionProgress(userId, username, missionId, amount = 1) {
   return rewards;
 }
 
-function missionStatusText(mission) {
-  const emoji = mission.claimed ? "✅" : mission.completed ? "✅" : "⬜";
-  return `${emoji} **${mission.name}**\n${mission.description}\nProgreso: **${mission.progress}/${mission.target}** · Recompensa: 🪙 ${mission.rewardCoins} · ✨ ${mission.rewardXp}`;
-}
-
 function missionsSummaryText(user) {
   const stats = getPlayerStats(user.id, user.username);
   const daily = ensureDailyMissions(stats);
@@ -560,6 +694,11 @@ function missionsSummaryText(user) {
       return `${emoji} ${m.name}: ${m.progress}/${m.target}`;
     })
     .join("\n");
+}
+
+function missionStatusText(mission) {
+  const emoji = mission.claimed ? "✅" : "⬜";
+  return `${emoji} **${mission.name}**\n${mission.description}\nProgreso: **${mission.progress}/${mission.target}** · Recompensa: 🪙 ${mission.rewardCoins} · ✨ ${mission.rewardXp}`;
 }
 
 /* =========================================================
@@ -1120,6 +1259,219 @@ function scheduleTempRoomDeletion(channel, ms, reason) {
 }
 
 /* =========================================================
+   TIENDA - LOGICA
+========================================================= */
+
+function openBasicBox(player) {
+  const roll = Math.random();
+
+  if (roll < 0.45) {
+    const coins = 60 + Math.floor(Math.random() * 91);
+    player.coins += coins;
+    return { title: "📦 Caja básica", description: `Ganaste **🪙 ${coins} monedas**.` };
+  }
+
+  if (roll < 0.75) {
+    const xp = 25 + Math.floor(Math.random() * 31);
+    player.xp += xp;
+    return { title: "📦 Caja básica", description: `Ganaste **✨ ${xp} XP**.` };
+  }
+
+  if (roll < 0.9) {
+    const titleReward = STORE_ITEMS.titles[Math.floor(Math.random() * STORE_ITEMS.titles.length)];
+    if (!player.ownedTitles.includes(titleReward.name)) {
+      player.ownedTitles.push(titleReward.name);
+      return { title: "📦 Caja básica", description: `Desbloqueaste el título **${titleReward.name}**.` };
+    }
+
+    const coins = 120;
+    player.coins += coins;
+    return { title: "📦 Caja básica", description: `Título repetido. Recibiste **🪙 ${coins} monedas**.` };
+  }
+
+  const badgeReward = STORE_ITEMS.badges[Math.floor(Math.random() * STORE_ITEMS.badges.length)];
+  if (!player.ownedBadges.includes(badgeReward.name)) {
+    player.ownedBadges.push(badgeReward.name);
+    return { title: "📦 Caja básica", description: `Desbloqueaste la insignia **${badgeReward.name}**.` };
+  }
+
+  player.coins += 140;
+  return { title: "📦 Caja básica", description: `Insignia repetida. Recibiste **🪙 140 monedas**.` };
+}
+
+function openRareBox(player) {
+  const roll = Math.random();
+
+  if (roll < 0.35) {
+    const coins = 180 + Math.floor(Math.random() * 121);
+    player.coins += coins;
+    return { title: "🎁 Caja rara", description: `Ganaste **🪙 ${coins} monedas**.` };
+  }
+
+  if (roll < 0.62) {
+    const xp = 80 + Math.floor(Math.random() * 61);
+    player.xp += xp;
+    return { title: "🎁 Caja rara", description: `Ganaste **✨ ${xp} XP**.` };
+  }
+
+  if (roll < 0.8) {
+    const titleReward = STORE_ITEMS.titles[Math.floor(Math.random() * STORE_ITEMS.titles.length)];
+    if (!player.ownedTitles.includes(titleReward.name)) {
+      player.ownedTitles.push(titleReward.name);
+      return { title: "🎁 Caja rara", description: `Desbloqueaste el título **${titleReward.name}**.` };
+    }
+
+    player.coins += 220;
+    return { title: "🎁 Caja rara", description: `Título repetido. Recibiste **🪙 220 monedas**.` };
+  }
+
+  if (roll < 0.93) {
+    const badgeReward = STORE_ITEMS.badges[Math.floor(Math.random() * STORE_ITEMS.badges.length)];
+    if (!player.ownedBadges.includes(badgeReward.name)) {
+      player.ownedBadges.push(badgeReward.name);
+      return { title: "🎁 Caja rara", description: `Desbloqueaste la insignia **${badgeReward.name}**.` };
+    }
+
+    player.coins += 260;
+    return { title: "🎁 Caja rara", description: `Insignia repetida. Recibiste **🪙 260 monedas**.` };
+  }
+
+  const boost = STORE_ITEMS.boosts[Math.floor(Math.random() * STORE_ITEMS.boosts.length)];
+  player.activeBoosts.push({
+    id: `${boost.id}_${Date.now()}`,
+    name: boost.name,
+    effect: boost.effect,
+    multiplier: boost.multiplier,
+    usesLeft: boost.uses
+  });
+
+  return { title: "🎁 Caja rara", description: `Ganaste el boost **${boost.name}**.` };
+}
+
+function openEpicBox(player) {
+  const roll = Math.random();
+
+  if (roll < 0.25) {
+    const coins = 450 + Math.floor(Math.random() * 251);
+    player.coins += coins;
+    return { title: "💎 Caja épica", description: `Ganaste **🪙 ${coins} monedas**.` };
+  }
+
+  if (roll < 0.45) {
+    const xp = 180 + Math.floor(Math.random() * 121);
+    player.xp += xp;
+    return { title: "💎 Caja épica", description: `Ganaste **✨ ${xp} XP**.` };
+  }
+
+  if (roll < 0.7) {
+    const titleReward = STORE_ITEMS.titles[Math.floor(Math.random() * STORE_ITEMS.titles.length)];
+    if (!player.ownedTitles.includes(titleReward.name)) {
+      player.ownedTitles.push(titleReward.name);
+      return { title: "💎 Caja épica", description: `Desbloqueaste el título **${titleReward.name}**.` };
+    }
+
+    player.coins += 500;
+    return { title: "💎 Caja épica", description: `Título repetido. Recibiste **🪙 500 monedas**.` };
+  }
+
+  if (roll < 0.9) {
+    const badgeReward = STORE_ITEMS.badges[Math.floor(Math.random() * STORE_ITEMS.badges.length)];
+    if (!player.ownedBadges.includes(badgeReward.name)) {
+      player.ownedBadges.push(badgeReward.name);
+      return { title: "💎 Caja épica", description: `Desbloqueaste la insignia **${badgeReward.name}**.` };
+    }
+
+    player.coins += 520;
+    return { title: "💎 Caja épica", description: `Insignia repetida. Recibiste **🪙 520 monedas**.` };
+  }
+
+  const boost = STORE_ITEMS.boosts[Math.floor(Math.random() * STORE_ITEMS.boosts.length)];
+  player.activeBoosts.push({
+    id: `${boost.id}_${Date.now()}`,
+    name: boost.name,
+    effect: boost.effect,
+    multiplier: boost.multiplier,
+    usesLeft: boost.uses + 2
+  });
+
+  return { title: "💎 Caja épica", description: `Ganaste el boost mejorado **${boost.name}**.` };
+}
+
+function openBox(player, itemId) {
+  if (itemId === "basic_box") return openBasicBox(player);
+  if (itemId === "rare_box") return openRareBox(player);
+  if (itemId === "epic_box") return openEpicBox(player);
+  return { title: "Caja", description: "No pasó nada." };
+}
+
+function buyStoreItem(userId, username, itemId) {
+  const stats = loadStats();
+  if (!stats[userId]) stats[userId] = createDefaultPlayer(username);
+
+  const player = normalizePlayer({
+    ...stats[userId],
+    username
+  });
+
+  const item = findStoreItemById(itemId);
+  if (!item) {
+    return { ok: false, reason: "Ese objeto no existe." };
+  }
+
+  if ((player.coins || 0) < item.price) {
+    return { ok: false, reason: `No te alcanza. Tenés ${player.coins || 0} monedas.` };
+  }
+
+  player.coins -= item.price;
+
+  let resultText = "";
+  let autoEquip = false;
+
+  if (STORE_ITEMS.boxes.some((x) => x.id === itemId)) {
+    const result = openBox(player, itemId);
+    resultText = result.description;
+  } else if (STORE_ITEMS.titles.some((x) => x.id === itemId)) {
+    if (player.ownedTitles.includes(item.name)) {
+      player.coins += item.price;
+      return { ok: false, reason: "Ya tenés ese título." };
+    }
+    player.ownedTitles.push(item.name);
+    player.equippedTitle = item.name;
+    resultText = `Compraste y equipaste el título **${item.name}**.`;
+    autoEquip = true;
+  } else if (STORE_ITEMS.badges.some((x) => x.id === itemId)) {
+    if (player.ownedBadges.includes(item.name)) {
+      player.coins += item.price;
+      return { ok: false, reason: "Ya tenés esa insignia." };
+    }
+    player.ownedBadges.push(item.name);
+    player.equippedBadge = item.name;
+    resultText = `Compraste y equipaste la insignia **${item.name}**.`;
+    autoEquip = true;
+  } else if (STORE_ITEMS.boosts.some((x) => x.id === itemId)) {
+    player.activeBoosts.push({
+      id: `${item.id}_${Date.now()}`,
+      name: item.name,
+      effect: item.effect,
+      multiplier: item.multiplier,
+      usesLeft: item.uses
+    });
+    resultText = `Compraste el boost **${item.name}**.`;
+  }
+
+  stats[userId] = player;
+  saveStats(stats);
+
+  return {
+    ok: true,
+    item,
+    resultText,
+    autoEquip,
+    newCoins: player.coins
+  };
+}
+
+/* =========================================================
    EMBEDS
 ========================================================= */
 
@@ -1135,7 +1487,13 @@ function menuEmbed(user) {
     .addFields(
       {
         name: "Tu progreso",
-        value: `⚡ Elo: **${stats.elo}**\n🆙 Nivel: **${lvl.level}**\n🪙 Monedas: **${stats.coins || 0}**`
+        value: [
+          `⚡ Elo: **${stats.elo}**`,
+          `🆙 Nivel: **${lvl.level}**`,
+          `🪙 Monedas: **${stats.coins || 0}**`,
+          `🏷️ Título: **${getEquippedTitle(stats)}**`,
+          `🎖️ Insignia: **${getEquippedBadge(stats)}**`
+        ].join("\n")
       },
       {
         name: "Misiones diarias",
@@ -1152,7 +1510,7 @@ function helpEmbed() {
     .setDescription(
       [
         "• Jugá mismo color, número o tipo",
-        "• Si no podés, robás",
+        "• Si no podés jugar, robás",
         "• Cuando te queda 1 carta, tocá UNO",
         "• Gana el primero que se queda sin cartas",
         "",
@@ -1161,6 +1519,7 @@ function helpEmbed() {
         "`/ayuda` → ayuda y comandos",
         "`/reglas` → reglas del juego",
         "`/top` → ranking global",
+        "`/tienda` → abrir la tienda",
         "`/perfil [usuario]` → ver perfil",
         "`/historial` → últimas partidas",
         "`/logros` → logros con páginas",
@@ -1292,6 +1651,8 @@ function profileEmbed(user) {
     .setThumbnail(user.displayAvatarURL())
     .setDescription(
       [
+        `🏷️ Título: **${getEquippedTitle(stats)}**`,
+        `🎖️ Insignia: **${getEquippedBadge(stats)}**`,
         `⚡ Elo: **${stats.elo}**`,
         `🆙 Nivel: **${lvl.level}**`,
         `✨ XP: **${lvl.currentXp}/${lvl.nextLevelXp}**`,
@@ -1317,6 +1678,10 @@ function profileEmbed(user) {
       {
         name: "Dificultades desbloqueadas",
         value: difficultyText(stats) || "Fácil"
+      },
+      {
+        name: "Boosts activos",
+        value: getActiveBoostText(stats).slice(0, 1024) || "Ninguno"
       },
       {
         name: "Siguiente meta",
@@ -1400,6 +1765,76 @@ function missionsEmbed(user) {
     .addFields({
       name: "Tus misiones",
       value: text.slice(0, 1024) || "Sin misiones"
+    });
+}
+
+function shopMainEmbed(user) {
+  const stats = getPlayerStats(user.id, user.username);
+
+  return new EmbedBuilder()
+    .setColor(EMBED.purple)
+    .setTitle("🛒 Tienda UNO")
+    .setDescription(
+      [
+        `🪙 Tus monedas: **${stats.coins || 0}**`,
+        "",
+        "Elegí una categoría:",
+        "📦 Cajas",
+        "🏷️ Títulos",
+        "🎖️ Insignias",
+        "🚀 Boosts"
+      ].join("\n")
+    );
+}
+
+function shopCategoryEmbed(user, categoryId) {
+  const stats = getPlayerStats(user.id, user.username);
+  const items = STORE_ITEMS[categoryId] || [];
+
+  const text =
+    items.length === 0
+      ? "No hay objetos."
+      : items
+          .map((item) => {
+            let ownedText = "";
+
+            if (categoryId === "titles" && stats.ownedTitles.includes(item.name)) {
+              ownedText = " · ✅ Ya lo tenés";
+            }
+
+            if (categoryId === "badges" && stats.ownedBadges.includes(item.name)) {
+              ownedText = " · ✅ Ya la tenés";
+            }
+
+            return `${item.emoji || "🛍️"} **${item.name}** — 🪙 ${item.price}${ownedText}\n${item.description}`;
+          })
+          .join("\n\n");
+
+  const titleMap = {
+    boxes: "📦 Cajas",
+    titles: "🏷️ Títulos",
+    badges: "🎖️ Insignias",
+    boosts: "🚀 Boosts"
+  };
+
+  return new EmbedBuilder()
+    .setColor(EMBED.purple)
+    .setTitle(`🛒 ${titleMap[categoryId] || "Tienda"}`)
+    .setDescription(`Tus monedas: **${stats.coins || 0}**`)
+    .addFields({
+      name: "Objetos",
+      value: text.slice(0, 1024) || "Sin contenido"
+    });
+}
+
+function shopPurchaseEmbed(result) {
+  return new EmbedBuilder()
+    .setColor(EMBED.success)
+    .setTitle("✅ Compra realizada")
+    .setDescription(result.resultText)
+    .addFields({
+      name: "Monedas restantes",
+      value: `🪙 ${result.newCoins}`
     });
 }
 
@@ -1498,7 +1933,12 @@ function menuComponents() {
         .setCustomId("uno_menu_missions")
         .setLabel("Misiones")
         .setStyle(ButtonStyle.Success)
-        .setEmoji("📅")
+        .setEmoji("📅"),
+      new ButtonBuilder()
+        .setCustomId("uno_menu_shop")
+        .setLabel("Tienda")
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji("🛒")
     )
   ];
 }
@@ -1520,6 +1960,65 @@ function achievementsComponents(userId, page = 0) {
         .setDisabled(page >= totalPages - 1)
     )
   ];
+}
+
+function shopMainComponents() {
+  return [
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("uno_shop_boxes")
+        .setLabel("Cajas")
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji("📦"),
+      new ButtonBuilder()
+        .setCustomId("uno_shop_titles")
+        .setLabel("Títulos")
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji("🏷️"),
+      new ButtonBuilder()
+        .setCustomId("uno_shop_badges")
+        .setLabel("Insignias")
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji("🎖️"),
+      new ButtonBuilder()
+        .setCustomId("uno_shop_boosts")
+        .setLabel("Boosts")
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji("🚀")
+    )
+  ];
+}
+
+function shopCategoryComponents(categoryId) {
+  const items = STORE_ITEMS[categoryId] || [];
+  const row1 = new ActionRowBuilder();
+  const row2 = new ActionRowBuilder();
+
+  items.forEach((item, index) => {
+    const btn = new ButtonBuilder()
+      .setCustomId(`uno_buy_${item.id}`)
+      .setLabel(item.name.slice(0, 80))
+      .setStyle(ButtonStyle.Success);
+
+    if (index < 3) row1.addComponents(btn);
+    else row2.addComponents(btn);
+  });
+
+  const rows = [];
+  if (row1.components.length) rows.push(row1);
+  if (row2.components.length) rows.push(row2);
+
+  rows.push(
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("uno_shop_back")
+        .setLabel("Volver")
+        .setStyle(ButtonStyle.Secondary)
+        .setEmoji("⬅️")
+    )
+  );
+
+  return rows;
 }
 
 function difficultyComponents(user) {
@@ -1744,15 +2243,11 @@ async function sendOrUpdateGameMessage(channel, game) {
 function scheduleBotTurn(channel, game) {
   clearBotTurnTimers(game.id);
 
-  console.log("[advanceTurn] le toca al bot:", game.id, "dif:", game.botDifficulty);
-
   const playTimer = setTimeout(async () => {
     try {
       if (game.finished) return;
       const current = getCurrentPlayer(game);
       if (!current?.isBot) return;
-
-      console.log("[botPlay] intento principal:", game.id);
       await botPlay(channel, game);
     } catch (err) {
       console.error("Error en botPlay:", err);
@@ -1764,8 +2259,6 @@ function scheduleBotTurn(channel, game) {
       if (game.finished) return;
       const current = getCurrentPlayer(game);
       if (!current?.isBot) return;
-
-      console.log("[anti-freeze] bot trabado, recuperando:", game.id);
 
       const card = chooseBotCard(game);
 
@@ -1828,8 +2321,6 @@ async function advanceTurn(channel, game, skipAmount = 1) {
   game.turnNumber += 1;
 
   const current = getCurrentPlayer(game);
-  console.log("[advanceTurn] turno ahora:", current?.username, "game:", game.id);
-
   await sendOrUpdateGameMessage(channel, game);
 
   if (current?.isBot && !game.finished) {
@@ -1862,8 +2353,11 @@ async function finishGame(channel, game, winner) {
 
   for (const p of humans) {
     if (!stats[p.id]) stats[p.id] = createDefaultPlayer(p.username);
-    stats[p.id].username = p.username;
-    ensureDailyMissions(stats[p.id]);
+    stats[p.id] = normalizePlayer({
+      ...stats[p.id],
+      username: p.username
+    });
+
     stats[p.id].gamesPlayed += 1;
 
     const match = game.matchStats[p.id] || createMatchStatEntry();
@@ -1884,9 +2378,7 @@ async function finishGame(channel, game, winner) {
     const won = winner.id === p.id;
     const match = game.matchStats[p.id] || createMatchStatEntry();
 
-    playerStats.dailyMissions = ensureDailyMissions(playerStats);
-
-    // misión jugar partida
+    // jugar partida
     for (const mission of playerStats.dailyMissions.missions) {
       if (mission.id === "play_games" && !mission.claimed) {
         mission.progress = Math.min(mission.target, mission.progress + 1);
@@ -1912,17 +2404,22 @@ async function finishGame(channel, game, winner) {
         playerStats.pvpWins += 1;
       }
 
+      let baseXp;
+      let baseCoins;
+
       if (game.vsBot) {
+        baseXp = BOT_DIFFICULTIES[game.botDifficulty].rewardXpWin;
+        baseCoins = BOT_DIFFICULTIES[game.botDifficulty].rewardCoinsWin;
         playerStats.elo += 12;
-        addRewards(
-          playerStats,
-          BOT_DIFFICULTIES[game.botDifficulty].rewardXpWin,
-          BOT_DIFFICULTIES[game.botDifficulty].rewardCoinsWin
-        );
       } else {
+        baseXp = 35;
+        baseCoins = 25;
         playerStats.elo += game.players.length === 2 ? 16 : 15;
-        addRewards(playerStats, 35, 25);
       }
+
+      const boosted = applyBoostsToRewards(playerStats, baseXp, baseCoins);
+      addRewards(playerStats, boosted.xp, boosted.coins);
+      consumeBoostUses(playerStats);
 
       for (const mission of playerStats.dailyMissions.missions) {
         if (mission.claimed) continue;
@@ -1955,22 +2452,25 @@ async function finishGame(channel, game, winner) {
       playerStats.losses += 1;
       playerStats.winStreak = 0;
 
+      let baseXp;
+      let baseCoins;
+
       if (game.vsBot) {
+        baseXp = BOT_DIFFICULTIES[game.botDifficulty].rewardXpLose;
+        baseCoins = BOT_DIFFICULTIES[game.botDifficulty].rewardCoinsLose;
         playerStats.elo = Math.max(800, playerStats.elo - 5);
-        addRewards(
-          playerStats,
-          BOT_DIFFICULTIES[game.botDifficulty].rewardXpLose,
-          BOT_DIFFICULTIES[game.botDifficulty].rewardCoinsLose
-        );
       } else {
+        baseXp = 15;
+        baseCoins = 10;
         playerStats.elo = Math.max(800, playerStats.elo - 6);
-        addRewards(playerStats, 15, 10);
       }
+
+      const boosted = applyBoostsToRewards(playerStats, baseXp, baseCoins);
+      addRewards(playerStats, boosted.xp, boosted.coins);
+      consumeBoostUses(playerStats);
 
       evaluateAchievements(stats, p.id, {});
     }
-
-    playerStats.level = computeLevelFromXp(playerStats.xp).level;
   }
 
   saveStats(stats);
@@ -2154,8 +2654,7 @@ function chooseBotCardHard(game) {
   const next = getNextPlayer(game);
   const nextCards = game.hands[next.id]?.length || 99;
 
-  const finishers = playable.filter(() => hand.length <= 2);
-  if (finishers.length) return finishers[0];
+  if (hand.length <= 2) return playable[0];
 
   if (nextCards <= 2) {
     const attacks = playable.filter((c) => ["draw2", "wild4", "skip"].includes(c.type));
@@ -2217,23 +2716,12 @@ function chooseBotCard(game) {
 }
 
 async function botPlay(channel, game) {
-  console.log("[botPlay] inicio", game.id);
-
-  if (game.finished) {
-    console.log("[botPlay] partida terminada");
-    return;
-  }
+  if (game.finished) return;
 
   const current = getCurrentPlayer(game);
-  console.log("[botPlay] current:", current?.username);
-
-  if (!current || !current.isBot) {
-    console.log("[botPlay] no es turno del bot");
-    return;
-  }
+  if (!current || !current.isBot) return;
 
   const card = chooseBotCard(game);
-  console.log("[botPlay] carta elegida:", card ? card.label : "ninguna");
 
   if (!card) {
     drawCards(game, "UNO_BOT", 1);
@@ -2310,6 +2798,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return;
       }
 
+      if (interaction.commandName === "tienda") {
+        await interaction.reply({
+          embeds: [shopMainEmbed(interaction.user)],
+          components: shopMainComponents(),
+          ephemeral: true
+        });
+        return;
+      }
+
       if (interaction.commandName === "perfil") {
         const target = interaction.options.getUser("usuario") || interaction.user;
         await interaction.reply({ embeds: [profileEmbed(target)] });
@@ -2361,10 +2858,66 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const totalPages = Math.max(1, Math.ceil(ACHIEVEMENTS.length / ACHIEVEMENTS_PER_PAGE));
       newPage = Math.max(0, Math.min(newPage, totalPages - 1));
 
-      const fakeUser = interaction.client.users.cache.get(targetUserId) || interaction.user;
+      const targetUser =
+        interaction.client.users.cache.get(targetUserId) || interaction.user;
+
       await interaction.update({
-        embeds: [achievementsEmbed(fakeUser, newPage)],
+        embeds: [achievementsEmbed(targetUser, newPage)],
         components: achievementsComponents(targetUserId, newPage)
+      });
+      return;
+    }
+
+    /* =========================
+       TIENDA
+    ========================= */
+
+    if (customId === "uno_menu_shop") {
+      await interaction.reply({
+        embeds: [shopMainEmbed(interaction.user)],
+        components: shopMainComponents(),
+        ephemeral: true
+      });
+      return;
+    }
+
+    if (
+      customId === "uno_shop_boxes" ||
+      customId === "uno_shop_titles" ||
+      customId === "uno_shop_badges" ||
+      customId === "uno_shop_boosts"
+    ) {
+      const categoryId = customId.replace("uno_shop_", "");
+      await interaction.update({
+        embeds: [shopCategoryEmbed(interaction.user, categoryId)],
+        components: shopCategoryComponents(categoryId)
+      });
+      return;
+    }
+
+    if (customId === "uno_shop_back") {
+      await interaction.update({
+        embeds: [shopMainEmbed(interaction.user)],
+        components: shopMainComponents()
+      });
+      return;
+    }
+
+    if (customId.startsWith("uno_buy_")) {
+      const itemId = customId.replace("uno_buy_", "");
+      const result = buyStoreItem(interaction.user.id, interaction.user.username, itemId);
+
+      if (!result.ok) {
+        await interaction.reply({
+          content: `⚠️ ${result.reason}`,
+          ephemeral: true
+        });
+        return;
+      }
+
+      await interaction.reply({
+        embeds: [shopPurchaseEmbed(result)],
+        ephemeral: true
       });
       return;
     }
@@ -2870,7 +3423,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         await interaction.reply({ content: "📢 Dijiste UNO.", ephemeral: true });
 
-        const rewards = updateMissionProgress(interaction.user.id, interaction.user.username, "say_uno", 1);
+        const rewards = updateMissionProgress(
+          interaction.user.id,
+          interaction.user.username,
+          "say_uno",
+          1
+        );
         await sendMissionRewards(interaction.channel, rewards);
       } else {
         await interaction.reply({
