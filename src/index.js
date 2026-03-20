@@ -238,7 +238,6 @@ function topPlayers(limit = 10) {
         ...createDefaultPlayer(data?.username || "Jugador"),
         ...data
       };
-
       return { userId, ...safe };
     })
     .sort((a, b) => (b.elo || 0) - (a.elo || 0) || (b.wins || 0) - (a.wins || 0))
@@ -783,9 +782,7 @@ function topEmbed() {
   const text =
     ranking.length === 0
       ? "Todavía no hay jugadores."
-      : ranking
-          .map((p, i) => `**${i + 1}.** ${p.username} — ⚡ ${p.elo}`)
-          .join("\n");
+      : ranking.map((p, i) => `**${i + 1}.** ${p.username} — ⚡ ${p.elo}`).join("\n");
 
   return new EmbedBuilder()
     .setColor(EMBED.warning)
@@ -843,9 +840,7 @@ function achievementsEmbed(user) {
   const unlockedText =
     owned.length === 0
       ? "Todavía no desbloqueaste ninguno."
-      : owned
-          .map((a) => `✅ **${a.name}**\n${a.description}\nProbabilidad: ${a.chance}`)
-          .join("\n\n");
+      : owned.map((a) => `✅ **${a.name}**\n${a.description}\nProbabilidad: ${a.chance}`).join("\n\n");
 
   const missingText =
     missing.length === 0
@@ -978,7 +973,12 @@ function gameComponents(game) {
         .setCustomId(`uno_topgame_${game.id}`)
         .setLabel("Top")
         .setStyle(ButtonStyle.Secondary)
-        .setEmoji("🏆")
+        .setEmoji("🏆"),
+      new ButtonBuilder()
+        .setCustomId(`uno_close_${game.id}`)
+        .setLabel("Cerrar sala")
+        .setStyle(ButtonStyle.Danger)
+        .setEmoji("🗑️")
     )
   ];
 }
@@ -1115,13 +1115,19 @@ async function sendOrUpdateGameMessage(channel, game) {
 async function advanceTurn(channel, game, skipAmount = 1) {
   game.currentPlayerIndex = nextPlayerIndex(game, skipAmount);
   game.turnNumber += 1;
+
   await sendOrUpdateGameMessage(channel, game);
 
   const current = getCurrentPlayer(game);
+
   if (current?.isBot && !game.finished) {
-    setTimeout(() => {
-      botPlay(channel, game).catch((err) => console.error("Error botPlay:", err));
-    }, 1200);
+    setTimeout(async () => {
+      try {
+        await botPlay(channel, game);
+      } catch (err) {
+        console.error("Error en botPlay:", err);
+      }
+    }, 1000);
   }
 }
 
@@ -1208,7 +1214,9 @@ async function finishGame(channel, game, winner) {
   removeGameReferences(game);
 
   if (game.tempChannel) {
-    await channel.send(`🗑️ Esta sala temporal se eliminará en ${TEMP_DELETE_DELAY_MS / 1000} segundos.`).catch(() => null);
+    await channel
+      .send(`🗑️ Esta sala temporal se eliminará en ${TEMP_DELETE_DELAY_MS / 1000} segundos.`)
+      .catch(() => null);
 
     setTimeout(async () => {
       try {
@@ -1712,6 +1720,49 @@ client.on(Events.InteractionCreate, async (interaction) => {
         components: panelComponents(game, interaction.user.id),
         ephemeral: true
       });
+      return;
+    }
+
+    if (action === "close") {
+      const player = game.players.find((p) => p.id === interaction.user.id);
+
+      if (!player) {
+        await interaction.reply({
+          content: "⚠️ No pertenecés a esta partida.",
+          ephemeral: true
+        });
+        return;
+      }
+
+      if (game.ownerId !== interaction.user.id) {
+        await interaction.reply({
+          content: "⚠️ Solo el creador puede cerrar la sala.",
+          ephemeral: true
+        });
+        return;
+      }
+
+      await interaction.reply({
+        content: "🗑️ Cerrando sala...",
+        ephemeral: true
+      });
+
+      removeGameReferences(game);
+
+      try {
+        await interaction.channel.send("🗑️ Sala cerrada manualmente.");
+      } catch {}
+
+      if (game.tempChannel) {
+        setTimeout(async () => {
+          try {
+            await interaction.channel.delete("Cierre manual de partida UNO");
+          } catch (err) {
+            console.error("Error borrando canal:", err);
+          }
+        }, 3000);
+      }
+
       return;
     }
 
