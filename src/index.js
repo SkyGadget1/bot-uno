@@ -46,6 +46,7 @@ const TEMP_DELETE_DELAY_MS = 15000;
 const REMATCH_ROOM_TIMEOUT_MS = 60000;
 const BOT_PLAY_DELAY_MS = 1200;
 const BOT_FAILSAFE_MS = 5000;
+const ACHIEVEMENTS_PER_PAGE = 5;
 
 const COLORS = {
   red: "🔴",
@@ -207,12 +208,52 @@ const ACHIEVEMENTS = [
 ];
 
 /* =========================================================
+   MISIONES DIARIAS
+========================================================= */
+
+const DAILY_MISSION_POOL = [
+  {
+    id: "play_games",
+    name: "Jugador del día",
+    description: "Jugá 2 partidas",
+    target: 2,
+    rewardXp: 25,
+    rewardCoins: 20
+  },
+  {
+    id: "win_games",
+    name: "Victoria diaria",
+    description: "Ganás 1 partida",
+    target: 1,
+    rewardXp: 35,
+    rewardCoins: 30
+  },
+  {
+    id: "say_uno",
+    name: "No te olvides",
+    description: "Decí UNO 2 veces",
+    target: 2,
+    rewardXp: 20,
+    rewardCoins: 15
+  },
+  {
+    id: "win_vs_bot",
+    name: "Cazador del día",
+    description: "Ganale 1 vez al bot",
+    target: 1,
+    rewardXp: 30,
+    rewardCoins: 25
+  }
+];
+
+/* =========================================================
    REGISTRO SLASH COMMANDS
 ========================================================= */
 
 const slashCommands = [
   new SlashCommandBuilder().setName("uno").setDescription("Abrir el menú principal de UNO"),
   new SlashCommandBuilder().setName("reglas").setDescription("Mostrar reglas simples de UNO"),
+  new SlashCommandBuilder().setName("ayuda").setDescription("Ver ayuda y comandos"),
   new SlashCommandBuilder().setName("top").setDescription("Ver ranking de jugadores"),
   new SlashCommandBuilder()
     .setName("perfil")
@@ -221,7 +262,8 @@ const slashCommands = [
       o.setName("usuario").setDescription("Jugador a consultar").setRequired(false)
     ),
   new SlashCommandBuilder().setName("historial").setDescription("Ver últimas partidas"),
-  new SlashCommandBuilder().setName("logros").setDescription("Ver tus logros y los que te faltan")
+  new SlashCommandBuilder().setName("logros").setDescription("Ver tus logros"),
+  new SlashCommandBuilder().setName("misiones").setDescription("Ver tus misiones diarias")
 ].map((c) => c.toJSON());
 
 async function registerSlashCommands() {
@@ -308,6 +350,24 @@ function computeLevelFromXp(xp) {
   return { level, currentXp: remainingXp, nextLevelXp: xpRequiredForLevel(level) };
 }
 
+function todayKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function createDailyMissionEntry(template) {
+  return {
+    id: template.id,
+    name: template.name,
+    description: template.description,
+    target: template.target,
+    progress: 0,
+    completed: false,
+    claimed: false,
+    rewardXp: template.rewardXp,
+    rewardCoins: template.rewardCoins
+  };
+}
+
 function createDefaultPlayer(username = "Jugador") {
   return {
     username,
@@ -326,8 +386,25 @@ function createDefaultPlayer(username = "Jugador") {
     unoCalls: 0,
     unoFails: 0,
     fastWins: 0,
-    highestHandRecovered: 7
+    highestHandRecovered: 7,
+    dailyMissions: {
+      date: todayKey(),
+      missions: DAILY_MISSION_POOL.map(createDailyMissionEntry)
+    }
   };
+}
+
+function ensureDailyMissions(player) {
+  const currentDate = todayKey();
+
+  if (!player.dailyMissions || player.dailyMissions.date !== currentDate) {
+    player.dailyMissions = {
+      date: currentDate,
+      missions: DAILY_MISSION_POOL.map(createDailyMissionEntry)
+    };
+  }
+
+  return player.dailyMissions;
 }
 
 function getPlayerStats(userId, username = "Jugador") {
@@ -346,6 +423,7 @@ function getPlayerStats(userId, username = "Jugador") {
     username
   };
 
+  ensureDailyMissions(stats[userId]);
   saveStats(stats);
   return stats[userId];
 }
@@ -366,6 +444,7 @@ function topPlayers(limit = 10) {
         ...createDefaultPlayer(data?.username || "Jugador"),
         ...data
       };
+      ensureDailyMissions(safe);
       const lvl = computeLevelFromXp(safe.xp || 0);
 
       return { userId, ...safe, level: lvl.level };
@@ -428,11 +507,59 @@ function evaluateAchievements(stats, userId, context = {}) {
   tryUnlock("uno_master", context.usedUnoAndWon === true);
   tryUnlock("wild4_finisher", context.wonWithWild4 === true);
   tryUnlock("comeback_10", context.maxHandRecovered >= 10);
-  tryUnlock("normal_unlock", highestUnlocked === "normal" || highestUnlocked === "hard" || highestUnlocked === "insane");
-  tryUnlock("hard_unlock", highestUnlocked === "hard" || highestUnlocked === "insane");
+  tryUnlock("normal_unlock", ["normal", "hard", "insane"].includes(highestUnlocked));
+  tryUnlock("hard_unlock", ["hard", "insane"].includes(highestUnlocked));
   tryUnlock("insane_unlock", highestUnlocked === "insane");
 
   return unlockedNow;
+}
+
+/* =========================================================
+   MISIONES
+========================================================= */
+
+function updateMissionProgress(userId, username, missionId, amount = 1) {
+  const stats = loadStats();
+  if (!stats[userId]) stats[userId] = createDefaultPlayer(username);
+
+  const player = stats[userId];
+  player.username = username;
+  const daily = ensureDailyMissions(player);
+
+  let rewards = [];
+  for (const mission of daily.missions) {
+    if (mission.id !== missionId) continue;
+    if (mission.claimed) continue;
+
+    mission.progress = Math.min(mission.target, (mission.progress || 0) + amount);
+
+    if (mission.progress >= mission.target && !mission.claimed) {
+      mission.completed = true;
+      mission.claimed = true;
+      addRewards(player, mission.rewardXp, mission.rewardCoins);
+      rewards.push(mission);
+    }
+  }
+
+  saveStats(stats);
+  return rewards;
+}
+
+function missionStatusText(mission) {
+  const emoji = mission.claimed ? "✅" : mission.completed ? "✅" : "⬜";
+  return `${emoji} **${mission.name}**\n${mission.description}\nProgreso: **${mission.progress}/${mission.target}** · Recompensa: 🪙 ${mission.rewardCoins} · ✨ ${mission.rewardXp}`;
+}
+
+function missionsSummaryText(user) {
+  const stats = getPlayerStats(user.id, user.username);
+  const daily = ensureDailyMissions(stats);
+
+  return daily.missions
+    .map((m) => {
+      const emoji = m.claimed ? "✅" : "⬜";
+      return `${emoji} ${m.name}: ${m.progress}/${m.target}`;
+    })
+    .join("\n");
 }
 
 /* =========================================================
@@ -728,7 +855,7 @@ function sortHand(hand) {
   return [...hand].sort((a, b) => {
     if (a.color !== b.color) return a.color.localeCompare(b.color);
     if (a.type !== b.type) return cardSortValue(a) - cardSortValue(b);
-    return String(a.value).localeCompare(String(a.value));
+    return String(a.value).localeCompare(String(b.value));
   });
 }
 
@@ -997,25 +1124,49 @@ function scheduleTempRoomDeletion(channel, ms, reason) {
 ========================================================= */
 
 function menuEmbed(user) {
+  const stats = getPlayerStats(user.id, user.username);
+  const lvl = computeLevelFromXp(stats.xp || 0);
+
   return new EmbedBuilder()
     .setColor(EMBED.brand)
     .setTitle("🃏 UNO")
     .setDescription("Elegí una opción para jugar")
     .setThumbnail(user.displayAvatarURL())
-    .setFooter({ text: "Simple y rápido" });
+    .addFields(
+      {
+        name: "Tu progreso",
+        value: `⚡ Elo: **${stats.elo}**\n🆙 Nivel: **${lvl.level}**\n🪙 Monedas: **${stats.coins || 0}**`
+      },
+      {
+        name: "Misiones diarias",
+        value: missionsSummaryText(user).slice(0, 1024) || "Sin misiones"
+      }
+    )
+    .setFooter({ text: "UNO Bot" });
 }
 
 function helpEmbed() {
   return new EmbedBuilder()
     .setColor(EMBED.brand)
-    .setTitle("❓ Cómo jugar")
+    .setTitle("❓ Ayuda de UNO")
     .setDescription(
       [
         "• Jugá mismo color, número o tipo",
         "• Si no podés, robás",
         "• Cuando te queda 1 carta, tocá UNO",
         "• Gana el primero que se queda sin cartas",
-        "• Ganando vs bot desbloqueás dificultades nuevas"
+        "",
+        "**Comandos**",
+        "`/uno` → menú principal",
+        "`/ayuda` → ayuda y comandos",
+        "`/reglas` → reglas del juego",
+        "`/top` → ranking global",
+        "`/perfil [usuario]` → ver perfil",
+        "`/historial` → últimas partidas",
+        "`/logros` → logros con páginas",
+        "`/misiones` → ver misiones diarias",
+        "",
+        "Ganando contra el bot desbloqueás dificultades nuevas."
       ].join("\n")
     );
 }
@@ -1195,35 +1346,61 @@ function historyEmbed() {
     .setDescription(text);
 }
 
-function achievementsEmbed(user) {
+function buildAchievementsData(user) {
   const stats = getPlayerStats(user.id, user.username);
-  const owned = ACHIEVEMENTS.filter((a) => stats.achievements.includes(a.id));
-  const missing = ACHIEVEMENTS.filter((a) => !stats.achievements.includes(a.id));
 
-  const unlockedText =
-    owned.length === 0
-      ? "Todavía no desbloqueaste ninguno."
-      : owned
-          .slice(0, 8)
-          .map((a) => `✅ **${a.name}**\n${a.description}\nProbabilidad: ${a.chance}`)
-          .join("\n\n");
+  return ACHIEVEMENTS.map((a) => ({
+    unlocked: stats.achievements.includes(a.id),
+    name: a.name,
+    description: a.description,
+    chance: a.chance
+  }));
+}
 
-  const missingText =
-    missing.length === 0
-      ? "Ya tenés todos los logros."
-      : missing
-          .slice(0, 8)
-          .map((a) => `⬜ **${a.name}**\n${a.description}\nProbabilidad: ${a.chance}`)
+function achievementsEmbed(user, page = 0) {
+  const stats = getPlayerStats(user.id, user.username);
+  const all = buildAchievementsData(user);
+  const totalPages = Math.max(1, Math.ceil(all.length / ACHIEVEMENTS_PER_PAGE));
+  const safePage = Math.max(0, Math.min(page, totalPages - 1));
+  const start = safePage * ACHIEVEMENTS_PER_PAGE;
+  const current = all.slice(start, start + ACHIEVEMENTS_PER_PAGE);
+
+  const unlockedCount = ACHIEVEMENTS.filter((a) => stats.achievements.includes(a.id)).length;
+
+  const text =
+    current.length === 0
+      ? "No hay logros para mostrar."
+      : current
+          .map(
+            (a) =>
+              `${a.unlocked ? "✅" : "⬜"} **${a.name}**\n${a.description}\nProbabilidad: ${a.chance}`
+          )
           .join("\n\n");
 
   return new EmbedBuilder()
     .setColor(EMBED.brand)
     .setTitle(`🏅 Logros de ${user.username}`)
-    .setDescription(`Tenés **${owned.length}/${ACHIEVEMENTS.length}** logros desbloqueados`)
-    .addFields(
-      { name: "Desbloqueados", value: unlockedText.slice(0, 1024) || "Ninguno" },
-      { name: "Te faltan", value: missingText.slice(0, 1024) || "Ninguno" }
-    );
+    .setDescription(`Tenés **${unlockedCount}/${ACHIEVEMENTS.length}** logros desbloqueados`)
+    .addFields({
+      name: `Página ${safePage + 1}/${totalPages}`,
+      value: text.slice(0, 1024) || "Sin contenido"
+    });
+}
+
+function missionsEmbed(user) {
+  const stats = getPlayerStats(user.id, user.username);
+  const daily = ensureDailyMissions(stats);
+
+  const text = daily.missions.map(missionStatusText).join("\n\n");
+
+  return new EmbedBuilder()
+    .setColor(EMBED.green)
+    .setTitle(`📅 Misiones diarias de ${user.username}`)
+    .setDescription(`Fecha: **${daily.date}**`)
+    .addFields({
+      name: "Tus misiones",
+      value: text.slice(0, 1024) || "Sin misiones"
+    });
 }
 
 function playerPanelEmbed(game, user) {
@@ -1267,6 +1444,15 @@ function rematchEmbed(offer) {
     );
 }
 
+function missionsCompletedEmbeds(missions) {
+  return missions.map((m) =>
+    new EmbedBuilder()
+      .setColor(EMBED.success)
+      .setTitle("✅ Misión diaria completada")
+      .setDescription(`**${m.name}**\nGanaste 🪙 ${m.rewardCoins} y ✨ ${m.rewardXp}`)
+  );
+}
+
 /* =========================================================
    COMPONENTES
 ========================================================= */
@@ -1306,6 +1492,32 @@ function menuComponents() {
         .setLabel("Logros")
         .setStyle(ButtonStyle.Secondary)
         .setEmoji("🏅")
+    ),
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("uno_menu_missions")
+        .setLabel("Misiones")
+        .setStyle(ButtonStyle.Success)
+        .setEmoji("📅")
+    )
+  ];
+}
+
+function achievementsComponents(userId, page = 0) {
+  const totalPages = Math.max(1, Math.ceil(ACHIEVEMENTS.length / ACHIEVEMENTS_PER_PAGE));
+
+  return [
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`uno_ach_prev_${userId}_${page}`)
+        .setLabel("⬅️")
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(page <= 0),
+      new ButtonBuilder()
+        .setCustomId(`uno_ach_next_${userId}_${page}`)
+        .setLabel("➡️")
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(page >= totalPages - 1)
     )
   ];
 }
@@ -1325,9 +1537,7 @@ function difficultyComponents(user) {
       .setDisabled(!enabled);
   });
 
-  return [
-    new ActionRowBuilder().addComponents(buttons.slice(0, 4))
-  ];
+  return [new ActionRowBuilder().addComponents(buttons.slice(0, 4))];
 }
 
 function lobbyComponents(game) {
@@ -1634,6 +1844,14 @@ async function sendAchievementUnlocks(channel, unlocked) {
   }
 }
 
+async function sendMissionRewards(channel, rewards) {
+  if (!rewards.length) return;
+  const embeds = missionsCompletedEmbeds(rewards);
+  for (const embed of embeds) {
+    await channel.send({ embeds: [embed] }).catch(() => null);
+  }
+}
+
 async function finishGame(channel, game, winner) {
   game.finished = true;
   game.started = false;
@@ -1641,11 +1859,11 @@ async function finishGame(channel, game, winner) {
 
   const stats = loadStats();
   const humans = humanPlayers(game);
-  const winnerIsBot = winner.isBot === true;
 
   for (const p of humans) {
     if (!stats[p.id]) stats[p.id] = createDefaultPlayer(p.username);
     stats[p.id].username = p.username;
+    ensureDailyMissions(stats[p.id]);
     stats[p.id].gamesPlayed += 1;
 
     const match = game.matchStats[p.id] || createMatchStatEntry();
@@ -1658,12 +1876,28 @@ async function finishGame(channel, game, winner) {
     );
   }
 
-  const unlockedEmbeds = [];
+  let unlockedEmbeds = [];
+  let missionRewards = [];
 
   for (const p of humans) {
     const playerStats = stats[p.id];
     const won = winner.id === p.id;
     const match = game.matchStats[p.id] || createMatchStatEntry();
+
+    playerStats.dailyMissions = ensureDailyMissions(playerStats);
+
+    // misión jugar partida
+    for (const mission of playerStats.dailyMissions.missions) {
+      if (mission.id === "play_games" && !mission.claimed) {
+        mission.progress = Math.min(mission.target, mission.progress + 1);
+        if (mission.progress >= mission.target) {
+          mission.completed = true;
+          mission.claimed = true;
+          addRewards(playerStats, mission.rewardXp, mission.rewardCoins);
+          missionRewards.push({ ...mission });
+        }
+      }
+    }
 
     if (won) {
       playerStats.wins += 1;
@@ -1688,6 +1922,25 @@ async function finishGame(channel, game, winner) {
       } else {
         playerStats.elo += game.players.length === 2 ? 16 : 15;
         addRewards(playerStats, 35, 25);
+      }
+
+      for (const mission of playerStats.dailyMissions.missions) {
+        if (mission.claimed) continue;
+
+        if (mission.id === "win_games") {
+          mission.progress = Math.min(mission.target, mission.progress + 1);
+        }
+
+        if (mission.id === "win_vs_bot" && game.vsBot) {
+          mission.progress = Math.min(mission.target, mission.progress + 1);
+        }
+
+        if (mission.progress >= mission.target) {
+          mission.completed = true;
+          mission.claimed = true;
+          addRewards(playerStats, mission.rewardXp, mission.rewardCoins);
+          missionRewards.push({ ...mission });
+        }
       }
 
       const unlocked = evaluateAchievements(stats, p.id, {
@@ -1731,10 +1984,6 @@ async function finishGame(channel, game, winner) {
     createdAt: new Date().toISOString()
   });
 
-  const summaryText = winnerIsBot
-    ? `**${winner.username}** ganó la partida`
-    : `**${winner.username}** ganó la partida`;
-
   const rewardText = humans
     .map((p) => {
       const st = stats[p.id];
@@ -1746,7 +1995,7 @@ async function finishGame(channel, game, winner) {
   const endEmbed = new EmbedBuilder()
     .setColor(EMBED.success)
     .setTitle("🏆 Fin de partida")
-    .setDescription(summaryText)
+    .setDescription(`**${winner.username}** ganó la partida`)
     .addFields(
       {
         name: "Resumen",
@@ -1762,6 +2011,7 @@ async function finishGame(channel, game, winner) {
 
   await channel.send({ embeds: [endEmbed] });
   await sendAchievementUnlocks(channel, unlockedEmbeds);
+  await sendMissionRewards(channel, missionRewards);
 
   removeGameReferences(game);
 
@@ -1904,7 +2154,7 @@ function chooseBotCardHard(game) {
   const next = getNextPlayer(game);
   const nextCards = game.hands[next.id]?.length || 99;
 
-  const finishers = playable.filter((card) => hand.length === 1 || hand.length === 2);
+  const finishers = playable.filter(() => hand.length <= 2);
   if (finishers.length) return finishers[0];
 
   if (nextCards <= 2) {
@@ -1931,7 +2181,9 @@ function chooseBotCardInsane(game) {
   const nextCards = game.hands[next.id]?.length || 99;
 
   if (hand.length <= 2) {
-    const finisher = playable.find((c) => c.type === "number" || c.type === "skip" || c.type === "draw2" || c.type === "wild4");
+    const finisher = playable.find((c) =>
+      ["number", "skip", "draw2", "wild4", "wild"].includes(c.type)
+    );
     if (finisher) return finisher;
   }
 
@@ -1941,13 +2193,13 @@ function chooseBotCardInsane(game) {
   }
 
   const topColor = getCurrentColor(game);
-  const sameColor = playable.filter((c) => c.color === topColor && c.type !== "wild" && c.type !== "wild4");
+  const sameColor = playable.filter((c) => c.color === topColor && !["wild", "wild4"].includes(c.type));
   if (sameColor.length) {
     sameColor.sort((a, b) => cardSortValue(b) - cardSortValue(a));
     return sameColor[0];
   }
 
-  const useful = playable.filter((c) => c.type !== "wild" && c.type !== "wild4");
+  const useful = playable.filter((c) => !["wild", "wild4"].includes(c.type));
   if (useful.length) {
     useful.sort((a, b) => cardSortValue(b) - cardSortValue(a));
     return useful[0];
@@ -1958,7 +2210,6 @@ function chooseBotCardInsane(game) {
 
 function chooseBotCard(game) {
   const diff = game.botDifficulty || "easy";
-
   if (diff === "easy") return chooseBotCardEasy(game);
   if (diff === "normal") return chooseBotCardNormal(game);
   if (diff === "hard") return chooseBotCardHard(game);
@@ -1987,12 +2238,10 @@ async function botPlay(channel, game) {
   if (!card) {
     drawCards(game, "UNO_BOT", 1);
     const drawn = game.hands["UNO_BOT"][game.hands["UNO_BOT"].length - 1];
-    console.log("[botPlay] robó:", drawn ? drawn.label : "ninguna");
 
     if (drawn && canPlay(drawn, game)) {
       const hand = game.hands["UNO_BOT"];
       const idx = hand.findIndex((c) => c.id === drawn.id);
-
       if (idx === -1) return;
 
       const playedCard = hand.splice(idx, 1)[0];
@@ -2003,13 +2252,11 @@ async function botPlay(channel, game) {
 
       game.lastAction = `UNO Bot robó y jugó ${playedCard.label}`;
       await applyPlayedCard(channel, game, current, playedCard, color);
-      console.log("[botPlay] terminó robando y jugando");
       return;
     }
 
     game.lastAction = "UNO Bot robó y pasó";
     await advanceTurn(channel, game, 1);
-    console.log("[botPlay] terminó robando y pasando");
     return;
   }
 
@@ -2019,7 +2266,9 @@ async function botPlay(channel, game) {
 
   const playedCard = hand.splice(idx, 1)[0];
   const selectedColor =
-    playedCard.type === "wild" || playedCard.type === "wild4" ? bestBotColor(game) : null;
+    playedCard.type === "wild" || playedCard.type === "wild4"
+      ? bestBotColor(game)
+      : null;
 
   if (hand.length === 1) {
     game.unoCalled["UNO_BOT"] = true;
@@ -2027,7 +2276,6 @@ async function botPlay(channel, game) {
   }
 
   await applyPlayedCard(channel, game, current, playedCard, selectedColor);
-  console.log("[botPlay] terminó jugando carta");
 }
 
 /* =========================================================
@@ -2048,13 +2296,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
 
       if (interaction.commandName === "reglas") {
-        await interaction.reply({ content: "📜 Reglas enviadas al canal.", ephemeral: true });
-        await interaction.channel.send({ embeds: [rulesEmbed()] });
+        await interaction.reply({ embeds: [rulesEmbed()] });
+        return;
+      }
+
+      if (interaction.commandName === "ayuda") {
+        await interaction.reply({ embeds: [helpEmbed()] });
         return;
       }
 
       if (interaction.commandName === "top") {
-        await interaction.reply({ embeds: [topEmbed()], ephemeral: true });
+        await interaction.reply({ embeds: [topEmbed()] });
         return;
       }
 
@@ -2065,12 +2317,20 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
 
       if (interaction.commandName === "historial") {
-        await interaction.reply({ embeds: [historyEmbed()], ephemeral: true });
+        await interaction.reply({ embeds: [historyEmbed()] });
         return;
       }
 
       if (interaction.commandName === "logros") {
-        await interaction.reply({ embeds: [achievementsEmbed(interaction.user)], ephemeral: true });
+        await interaction.reply({
+          embeds: [achievementsEmbed(interaction.user, 0)],
+          components: achievementsComponents(interaction.user.id, 0)
+        });
+        return;
+      }
+
+      if (interaction.commandName === "misiones") {
+        await interaction.reply({ embeds: [missionsEmbed(interaction.user)] });
         return;
       }
 
@@ -2085,7 +2345,32 @@ client.on(Events.InteractionCreate, async (interaction) => {
     const customId = interaction.customId;
 
     /* =========================
-       MENÚ PRINCIPAL
+       PAGINAS LOGROS
+    ========================= */
+
+    if (customId.startsWith("uno_ach_prev_") || customId.startsWith("uno_ach_next_")) {
+      const parts = customId.split("_");
+      const direction = parts[2];
+      const targetUserId = parts[3];
+      const currentPage = Number(parts[4] || 0);
+
+      let newPage = currentPage;
+      if (direction === "prev") newPage -= 1;
+      if (direction === "next") newPage += 1;
+
+      const totalPages = Math.max(1, Math.ceil(ACHIEVEMENTS.length / ACHIEVEMENTS_PER_PAGE));
+      newPage = Math.max(0, Math.min(newPage, totalPages - 1));
+
+      const fakeUser = interaction.client.users.cache.get(targetUserId) || interaction.user;
+      await interaction.update({
+        embeds: [achievementsEmbed(fakeUser, newPage)],
+        components: achievementsComponents(targetUserId, newPage)
+      });
+      return;
+    }
+
+    /* =========================
+       MENU PRINCIPAL
     ========================= */
 
     if (customId === "uno_menu_find") {
@@ -2140,6 +2425,56 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return;
     }
 
+    if (customId === "uno_menu_hand") {
+      const game = getGameByChannelId(interaction.channel.id);
+
+      if (!game || !game.started) {
+        await interaction.reply({
+          content: "⚠️ No hay una partida en curso en este canal.",
+          ephemeral: true
+        });
+        return;
+      }
+
+      if (!game.players.find((p) => p.id === interaction.user.id)) {
+        await interaction.reply({
+          content: "⚠️ No estás en esta partida.",
+          ephemeral: true
+        });
+        return;
+      }
+
+      await openPlayerPanel(interaction, game);
+      return;
+    }
+
+    if (customId === "uno_menu_top") {
+      await interaction.reply({ embeds: [topEmbed()] });
+      return;
+    }
+
+    if (customId === "uno_menu_help") {
+      await interaction.reply({ embeds: [helpEmbed()], ephemeral: true });
+      return;
+    }
+
+    if (customId === "uno_menu_achievements") {
+      await interaction.reply({
+        embeds: [achievementsEmbed(interaction.user, 0)],
+        components: achievementsComponents(interaction.user.id, 0)
+      });
+      return;
+    }
+
+    if (customId === "uno_menu_missions") {
+      await interaction.reply({ embeds: [missionsEmbed(interaction.user)] });
+      return;
+    }
+
+    /* =========================
+       DIFICULTAD BOT
+    ========================= */
+
     if (customId.startsWith("uno_botdiff_")) {
       const diffId = customId.replace("uno_botdiff_", "");
       const stats = getPlayerStats(interaction.user.id, interaction.user.username);
@@ -2187,44 +2522,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
         scheduleBotTurn(tempChannel, game);
       }
 
-      return;
-    }
-
-    if (customId === "uno_menu_hand") {
-      const game = getGameByChannelId(interaction.channel.id);
-
-      if (!game || !game.started) {
-        await interaction.reply({
-          content: "⚠️ No hay una partida en curso en este canal.",
-          ephemeral: true
-        });
-        return;
-      }
-
-      if (!game.players.find((p) => p.id === interaction.user.id)) {
-        await interaction.reply({
-          content: "⚠️ No estás en esta partida.",
-          ephemeral: true
-        });
-        return;
-      }
-
-      await openPlayerPanel(interaction, game);
-      return;
-    }
-
-    if (customId === "uno_menu_top") {
-      await interaction.reply({ embeds: [topEmbed()], ephemeral: true });
-      return;
-    }
-
-    if (customId === "uno_menu_help") {
-      await interaction.reply({ embeds: [helpEmbed()], ephemeral: true });
-      return;
-    }
-
-    if (customId === "uno_menu_achievements") {
-      await interaction.reply({ embeds: [achievementsEmbed(interaction.user)], ephemeral: true });
       return;
     }
 
@@ -2373,11 +2670,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     /* =========================
-       ACCIONES GENERALES DE PARTIDA
+       ACCIONES GENERALES
     ========================= */
 
     if (customId.startsWith("uno_topgame_")) {
-      await interaction.reply({ embeds: [topEmbed()], ephemeral: true });
+      await interaction.reply({ embeds: [topEmbed()] });
       return;
     }
 
@@ -2572,6 +2869,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
         }
 
         await interaction.reply({ content: "📢 Dijiste UNO.", ephemeral: true });
+
+        const rewards = updateMissionProgress(interaction.user.id, interaction.user.username, "say_uno", 1);
+        await sendMissionRewards(interaction.channel, rewards);
       } else {
         await interaction.reply({
           content: "⚠️ Usá UNO cuando te quedan 2 o menos cartas.",
