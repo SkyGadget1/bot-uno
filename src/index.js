@@ -14,7 +14,9 @@ const {
   Events,
   SlashCommandBuilder,
   REST,
-  Routes
+  Routes,
+  ChannelType,
+  PermissionsBitField
 } = require("discord.js");
 
 const client = new Client({
@@ -22,12 +24,22 @@ const client = new Client({
   partials: [Partials.Channel]
 });
 
+/* =========================================================
+   CONFIG
+========================================================= */
+
 const DATA_DIR = path.join(__dirname, "data");
 const STATS_PATH = path.join(DATA_DIR, "unoStats.json");
 const HISTORY_PATH = path.join(DATA_DIR, "unoHistory.json");
 
-const games = new Map();
+const games = new Map(); // gameId -> game
+const channelGames = new Map(); // channelId -> gameId
+const playerGames = new Map(); // userId -> gameId
+
 let CARD_SEQ = 1;
+
+const TEMP_CATEGORY_NAME = "UNO TEMP";
+const TEMP_DELETE_DELAY_MS = 15000;
 
 const COLORS = {
   red: "🔴",
@@ -207,7 +219,6 @@ function getPlayerStats(userId, username = "Jugador") {
 
   const defaults = createDefaultPlayer(username);
 
-  // completar campos faltantes de versiones viejas
   stats[userId] = {
     ...defaults,
     ...stats[userId],
@@ -272,6 +283,129 @@ function evaluateAchievements(stats, userId, context = {}) {
   tryUnlock("wild4_finisher", context.wonWithWild4 === true);
 
   return unlockedNow;
+}
+
+/* =========================================================
+   UTILIDADES GENERALES
+========================================================= */
+
+function cleanChannelName(text) {
+  return String(text || "jugador")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 20) || "jugador";
+}
+
+function getGameByChannelId(channelId) {
+  const gameId = channelGames.get(channelId);
+  if (!gameId) return null;
+  return games.get(gameId) || null;
+}
+
+function getGameByPlayerId(userId) {
+  const gameId = playerGames.get(userId);
+  if (!gameId) return null;
+  return games.get(gameId) || null;
+}
+
+function getGameById(gameId) {
+  return games.get(gameId) || null;
+}
+
+function setGameReferences(game) {
+  games.set(game.id, game);
+  channelGames.set(game.channelId, game.id);
+
+  for (const p of game.players) {
+    if (!p.isBot) {
+      playerGames.set(p.id, game.id);
+    }
+  }
+}
+
+function refreshPlayerReferences(game) {
+  for (const [userId, gameId] of playerGames.entries()) {
+    if (gameId === game.id) {
+      playerGames.delete(userId);
+    }
+  }
+
+  for (const p of game.players) {
+    if (!p.isBot) {
+      playerGames.set(p.id, game.id);
+    }
+  }
+}
+
+function removeGameReferences(game) {
+  games.delete(game.id);
+  channelGames.delete(game.channelId);
+
+  for (const p of game.players) {
+    if (!p.isBot) {
+      playerGames.delete(p.id);
+    }
+  }
+}
+
+/* =========================================================
+   CANALES TEMPORALES
+========================================================= */
+
+async function getOrCreateTempCategory(guild) {
+  let category = guild.channels.cache.find(
+    (c) => c.type === ChannelType.GuildCategory && c.name === TEMP_CATEGORY_NAME
+  );
+
+  if (category) return category;
+
+  category = await guild.channels.create({
+    name: TEMP_CATEGORY_NAME,
+    type: ChannelType.GuildCategory
+  });
+
+  return category;
+}
+
+async function createTempUnoChannel(guild, user) {
+  const category = await getOrCreateTempCategory(guild);
+  const safeName = cleanChannelName(user.username);
+
+  const channel = await guild.channels.create({
+    name: `uno-${safeName}`,
+    type: ChannelType.GuildText,
+    parent: category.id,
+    permissionOverwrites: [
+      {
+        id: guild.roles.everyone.id,
+        deny: [PermissionsBitField.Flags.ViewChannel]
+      },
+      {
+        id: user.id,
+        allow: [
+          PermissionsBitField.Flags.ViewChannel,
+          PermissionsBitField.Flags.SendMessages,
+          PermissionsBitField.Flags.ReadMessageHistory
+        ]
+      },
+      {
+        id: guild.members.me.id,
+        allow: [
+          PermissionsBitField.Flags.ViewChannel,
+          PermissionsBitField.Flags.SendMessages,
+          PermissionsBitField.Flags.ReadMessageHistory,
+          PermissionsBitField.Flags.ManageChannels,
+          PermissionsBitField.Flags.ManageMessages
+        ]
+      }
+    ]
+  });
+
+  return channel;
 }
 
 /* =========================================================
@@ -454,7 +588,8 @@ function createBaseGame(channel, ownerUser, vsBot = false) {
     saidUnoThisGame: {},
     turnNumber: 0,
     createdAt: Date.now(),
-    lastPlayedCardType: null
+    lastPlayedCardType: null,
+    tempChannel: vsBot
   };
 
   if (vsBot) {
@@ -529,6 +664,27 @@ function startGame(game) {
     game.currentPlayerIndex = nextPlayerIndex(game, 2);
     game.lastAction += ` · ${next.username} robó 2`;
   }
+}
+
+function tryJoinLobby(game, user) {
+  if (!game) return { ok: false, reason: "No hay lobby." };
+  if (game.started) return { ok: false, reason: "La partida ya comenzó." };
+  if (game.vsBot) return { ok: false, reason: "Esa partida es contra el bot." };
+  if (game.players.find((p) => p.id === user.id)) return { ok: false, reason: "Ya estás en el lobby." };
+  if (game.players.length >= 4) return { ok: false, reason: "El lobby está lleno." };
+  if (playerGames.has(user.id)) return { ok: false, reason: "Ya estás en otra partida o lobby." };
+
+  game.players.push({
+    id: user.id,
+    username: user.username,
+    isBot: false
+  });
+  game.hands[user.id] = [];
+  game.unoCalled[user.id] = false;
+  game.saidUnoThisGame[user.id] = false;
+
+  refreshPlayerReferences(game);
+  return { ok: true };
 }
 
 /* =========================================================
@@ -885,8 +1041,35 @@ function panelComponents(game, userId) {
   ];
 }
 
+function wildColorComponents(game, card) {
+  return [
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`uno_color_${game.id}_${card.id}_red`)
+        .setLabel("Rojo")
+        .setStyle(ButtonStyle.Danger)
+        .setEmoji("🔴"),
+      new ButtonBuilder()
+        .setCustomId(`uno_color_${game.id}_${card.id}_blue`)
+        .setLabel("Azul")
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji("🔵"),
+      new ButtonBuilder()
+        .setCustomId(`uno_color_${game.id}_${card.id}_green`)
+        .setLabel("Verde")
+        .setStyle(ButtonStyle.Success)
+        .setEmoji("🟢"),
+      new ButtonBuilder()
+        .setCustomId(`uno_color_${game.id}_${card.id}_yellow`)
+        .setLabel("Amarillo")
+        .setStyle(ButtonStyle.Secondary)
+        .setEmoji("🟡")
+    )
+  ];
+}
+
 /* =========================================================
-   UTILIDADES RESPUESTA
+   RESPUESTAS
 ========================================================= */
 
 async function safeReply(interaction, payload) {
@@ -925,25 +1108,6 @@ async function sendOrUpdateGameMessage(channel, game) {
   }
 }
 
-function tryJoinLobby(game, user) {
-  if (!game) return { ok: false, reason: "No hay lobby." };
-  if (game.started) return { ok: false, reason: "La partida ya comenzó." };
-  if (game.vsBot) return { ok: false, reason: "Esa partida es contra el bot." };
-  if (game.players.find((p) => p.id === user.id)) return { ok: false, reason: "Ya estás en el lobby." };
-  if (game.players.length >= 4) return { ok: false, reason: "El lobby está lleno." };
-
-  game.players.push({
-    id: user.id,
-    username: user.username,
-    isBot: false
-  });
-  game.hands[user.id] = [];
-  game.unoCalled[user.id] = false;
-  game.saidUnoThisGame[user.id] = false;
-
-  return { ok: true };
-}
-
 /* =========================================================
    TURNOS
 ========================================================= */
@@ -955,7 +1119,9 @@ async function advanceTurn(channel, game, skipAmount = 1) {
 
   const current = getCurrentPlayer(game);
   if (current?.isBot && !game.finished) {
-    setTimeout(() => botPlay(channel, game), 1200);
+    setTimeout(() => {
+      botPlay(channel, game).catch((err) => console.error("Error botPlay:", err));
+    }, 1200);
   }
 }
 
@@ -1039,7 +1205,19 @@ async function finishGame(channel, game, winner) {
   await channel.send({ embeds: [endEmbed] });
   await sendAchievementUnlocks(channel, unlocked);
 
-  games.delete(channel.id);
+  removeGameReferences(game);
+
+  if (game.tempChannel) {
+    await channel.send(`🗑️ Esta sala temporal se eliminará en ${TEMP_DELETE_DELAY_MS / 1000} segundos.`).catch(() => null);
+
+    setTimeout(async () => {
+      try {
+        await channel.delete("Partida UNO vs Bot terminada");
+      } catch (err) {
+        console.error("No se pudo borrar el canal temporal:", err);
+      }
+    }, TEMP_DELETE_DELAY_MS);
+  }
 }
 
 async function applyPlayedCard(channel, game, player, card, selectedColor = null) {
@@ -1131,7 +1309,7 @@ function bestBotColor(game) {
     if (count[c.color] !== undefined) count[c.color]++;
   }
 
-  return Object.entries(count).sort((a, b) => b[1] - a[1])[0][0] || "red";
+  return Object.entries(count).sort((a, b) => b[1] - a[1])[0]?.[0] || "red";
 }
 
 async function botPlay(channel, game) {
@@ -1185,8 +1363,7 @@ async function botPlay(channel, game) {
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
     if (interaction.isChatInputCommand()) {
-      const channelId = interaction.channel.id;
-      const currentGame = games.get(channelId);
+      const currentGame = getGameByChannelId(interaction.channel.id);
 
       if (interaction.commandName === "uno") {
         await interaction.reply({
@@ -1203,7 +1380,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
 
       if (interaction.commandName === "top") {
-        await interaction.reply({ embeds: [topEmbed()] });
+        await interaction.reply({ embeds: [topEmbed()], ephemeral: true });
         return;
       }
 
@@ -1218,7 +1395,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
 
       if (interaction.commandName === "logros") {
-        await interaction.reply({ embeds: [achievementsEmbed(interaction.user)] });
+        await interaction.reply({ embeds: [achievementsEmbed(interaction.user)], ephemeral: true });
         return;
       }
 
@@ -1237,11 +1414,19 @@ client.on(Events.InteractionCreate, async (interaction) => {
     ========================= */
 
     if (customId === "uno_menu_find") {
-      const existing = games.get(interaction.channel.id);
+      const existing = getGameByChannelId(interaction.channel.id);
+
+      if (playerGames.has(interaction.user.id)) {
+        await interaction.reply({
+          content: "⚠️ Ya estás en una partida o lobby.",
+          ephemeral: true
+        });
+        return;
+      }
 
       if (!existing) {
         const game = createBaseGame(interaction.channel, interaction.user, false);
-        games.set(interaction.channel.id, game);
+        setGameReferences(game);
 
         await interaction.reply({
           content: "🎮 Se creó un lobby.",
@@ -1272,30 +1457,40 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     if (customId === "uno_menu_bot") {
-      const existing = games.get(interaction.channel.id);
-      if (existing) {
+      if (!interaction.guild) {
         await interaction.reply({
-          content: "⚠️ Ya hay una partida o lobby en este canal.",
+          content: "⚠️ Esto solo funciona dentro de un servidor.",
           ephemeral: true
         });
         return;
       }
 
-      const game = createBaseGame(interaction.channel, interaction.user, true);
-      games.set(interaction.channel.id, game);
+      if (playerGames.has(interaction.user.id)) {
+        await interaction.reply({
+          content: "⚠️ Ya estás en una partida o lobby.",
+          ephemeral: true
+        });
+        return;
+      }
+
+      const tempChannel = await createTempUnoChannel(interaction.guild, interaction.user);
+      const game = createBaseGame(tempChannel, interaction.user, true);
+
+      setGameReferences(game);
       startGame(game);
 
       await interaction.reply({
-        content: "🤖 Partida contra el bot creada.",
+        content: `🤖 Te creé una sala privada para jugar: ${tempChannel}`,
         ephemeral: true
       });
 
-      await sendOrUpdateGameMessage(interaction.channel, game);
+      await tempChannel.send(`🎮 ${interaction.user}, tu partida de UNO vs Bot empezó acá.`);
+      await sendOrUpdateGameMessage(tempChannel, game);
       return;
     }
 
     if (customId === "uno_menu_hand") {
-      const game = games.get(interaction.channel.id);
+      const game = getGameByChannelId(interaction.channel.id);
 
       if (!game || !game.started) {
         await interaction.reply({
@@ -1338,19 +1533,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
     if (customId.startsWith("uno_color_")) {
       const parts = customId.split("_");
-      const channelId = parts[2];
-      const timestamp = parts[3];
+      const gameId = `${parts[2]}_${parts[3]}`;
       const cardId = parts[4];
       const selectedColor = parts[5];
-      const gameId = `${channelId}_${timestamp}`;
 
-      let game = null;
-      for (const g of games.values()) {
-        if (g.id === gameId) {
-          game = g;
-          break;
-        }
-      }
+      const game = getGameById(gameId);
 
       if (!game) {
         await interaction.reply({ content: "⚠️ La partida ya no existe.", ephemeral: true });
@@ -1409,14 +1596,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     const parts = customId.split("_");
     const action = parts[1];
     const gameId = parts.slice(2).join("_");
-
-    let game = null;
-    for (const g of games.values()) {
-      if (g.id === gameId) {
-        game = g;
-        break;
-      }
-    }
+    const game = getGameById(gameId);
 
     if (!game) {
       await interaction.reply({
@@ -1454,9 +1634,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
       delete game.hands[interaction.user.id];
       delete game.unoCalled[interaction.user.id];
       delete game.saidUnoThisGame[interaction.user.id];
+      playerGames.delete(interaction.user.id);
 
       if (!game.players.length) {
-        games.delete(interaction.channel.id);
+        removeGameReferences(game);
         await interaction.reply({ content: "🗑️ El lobby fue eliminado.", ephemeral: true });
         return;
       }
@@ -1464,6 +1645,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (game.ownerId === interaction.user.id) {
         game.ownerId = game.players[0].id;
       }
+
+      refreshPlayerReferences(game);
 
       await interaction.reply({ content: "✅ Saliste del lobby.", ephemeral: true });
       await sendOrUpdateGameMessage(interaction.channel, game);
@@ -1493,6 +1676,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
 
       startGame(game);
+      refreshPlayerReferences(game);
+
       await interaction.reply({ content: "🚀 La partida comenzó.", ephemeral: true });
       await sendOrUpdateGameMessage(interaction.channel, game);
       return;
@@ -1618,30 +1803,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
               .setTitle("🎨 Elegí un color")
               .setDescription(`Seleccionaste ${card.label}`)
           ],
-          components: [
-            new ActionRowBuilder().addComponents(
-              new ButtonBuilder()
-                .setCustomId(`uno_color_${game.id}_${card.id}_red`)
-                .setLabel("Rojo")
-                .setStyle(ButtonStyle.Danger)
-                .setEmoji("🔴"),
-              new ButtonBuilder()
-                .setCustomId(`uno_color_${game.id}_${card.id}_blue`)
-                .setLabel("Azul")
-                .setStyle(ButtonStyle.Primary)
-                .setEmoji("🔵"),
-              new ButtonBuilder()
-                .setCustomId(`uno_color_${game.id}_${card.id}_green`)
-                .setLabel("Verde")
-                .setStyle(ButtonStyle.Success)
-                .setEmoji("🟢"),
-              new ButtonBuilder()
-                .setCustomId(`uno_color_${game.id}_${card.id}_yellow`)
-                .setLabel("Amarillo")
-                .setStyle(ButtonStyle.Secondary)
-                .setEmoji("🟡")
-            )
-          ],
+          components: wildColorComponents(game, card),
           ephemeral: true
         });
         return;
@@ -1694,5 +1856,3 @@ client.once(Events.ClientReady, async (c) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
-
-
